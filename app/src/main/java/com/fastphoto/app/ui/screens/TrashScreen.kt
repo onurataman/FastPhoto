@@ -1,17 +1,23 @@
 package com.fastphoto.app.ui.screens
 
+import androidx.compose.animation.*
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DeleteForever
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.RestoreFromTrash
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -23,16 +29,17 @@ import com.fastphoto.app.data.local.entity.TrashedPhoto
 import com.fastphoto.app.ui.viewmodel.TrashEvent
 import com.fastphoto.app.ui.viewmodel.TrashUiState
 import com.fastphoto.app.ui.viewmodel.TrashViewModel
+import kotlinx.coroutines.launch
 import java.io.File
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun TrashScreen(
+    onNavigateBack: () -> Unit,
     viewModel: TrashViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    var showEmptyTrashDialog by remember { mutableStateOf(false) }
 
     // Collect events
     LaunchedEffect(Unit) {
@@ -40,19 +47,19 @@ fun TrashScreen(
             when (event) {
                 is TrashEvent.PhotoRestored -> {
                     snackbarHostState.showSnackbar(
-                        message = "Photo restored successfully",
+                        message = "Fotoğraf geri yüklendi",
                         duration = SnackbarDuration.Short
                     )
                 }
                 is TrashEvent.PhotoDeletedPermanently -> {
                     snackbarHostState.showSnackbar(
-                        message = "Photo permanently deleted",
+                        message = "Fotoğraf kalıcı olarak silindi",
                         duration = SnackbarDuration.Short
                     )
                 }
                 is TrashEvent.TrashEmptied -> {
                     snackbarHostState.showSnackbar(
-                        message = "Trash emptied",
+                        message = "Çöp kutusu boşaltıldı",
                         duration = SnackbarDuration.Short
                     )
                 }
@@ -67,187 +74,324 @@ fun TrashScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.trash_title)) },
-                actions = {
-                    if (uiState is TrashUiState.Success) {
-                        IconButton(onClick = { showEmptyTrashDialog = true }) {
-                            Icon(
-                                Icons.Default.DeleteForever,
-                                contentDescription = stringResource(R.string.empty_trash)
-                            )
-                        }
-                    }
-                }
-            )
-        },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .background(Color.Black)
         ) {
             when (val state = uiState) {
                 is TrashUiState.Loading -> {
                     CircularProgressIndicator(
-                        modifier = Modifier.align(Alignment.Center)
+                        modifier = Modifier.align(Alignment.Center),
+                        color = Color.White
                     )
                 }
 
                 is TrashUiState.Empty -> {
-                    Text(
-                        text = stringResource(R.string.trash_empty),
+                    Column(
                         modifier = Modifier.align(Alignment.Center),
-                        style = MaterialTheme.typography.bodyLarge
-                    )
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.5f),
+                            modifier = Modifier.size(64.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = stringResource(R.string.trash_empty),
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Button(onClick = onNavigateBack) {
+                            Text("Ana Ekrana Dön")
+                        }
+                    }
                 }
 
                 is TrashUiState.Success -> {
-                    TrashGrid(
+                    TrashPagerWithGestures(
                         photos = state.photos,
                         onRestorePhoto = viewModel::restorePhoto,
-                        onDeletePermanently = viewModel::deletePermanently
+                        onDeletePermanently = viewModel::deletePermanently,
+                        onNavigateBack = onNavigateBack
                     )
                 }
             }
         }
     }
-
-    // Empty trash confirmation dialog
-    if (showEmptyTrashDialog) {
-        AlertDialog(
-            onDismissRequest = { showEmptyTrashDialog = false },
-            title = { Text(stringResource(R.string.confirm_delete)) },
-            text = { Text(stringResource(R.string.confirm_empty_trash)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.emptyTrash()
-                        showEmptyTrashDialog = false
-                    }
-                ) {
-                    Text(stringResource(R.string.delete))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showEmptyTrashDialog = false }) {
-                    Text(stringResource(R.string.cancel))
-                }
-            }
-        )
-    }
 }
 
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
-private fun TrashGrid(
+private fun TrashPagerWithGestures(
     photos: List<TrashedPhoto>,
     onRestorePhoto: (TrashedPhoto) -> Unit,
-    onDeletePermanently: (TrashedPhoto) -> Unit
+    onDeletePermanently: (TrashedPhoto) -> Unit,
+    onNavigateBack: () -> Unit
 ) {
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 120.dp),
-        contentPadding = PaddingValues(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        items(photos, key = { it.id }) { photo ->
-            TrashPhotoItem(
-                photo = photo,
-                onRestore = { onRestorePhoto(photo) },
-                onDeletePermanently = { onDeletePermanently(photo) }
+    val pagerState = rememberPagerState(pageCount = { photos.size })
+    var showControls by remember { mutableStateOf(true) }
+    val scope = rememberCoroutineScope()
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Photo Pager with swipe gestures
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize()
+        ) { page ->
+            SwipeableTrashPhotoPage(
+                photo = photos[page],
+                onSwipeUp = {
+                    onDeletePermanently(photos[page])
+                },
+                onSwipeDown = {
+                    onRestorePhoto(photos[page])
+                },
+                onTap = {
+                    showControls = !showControls
+                }
             )
+        }
+
+        // Top Bar
+        AnimatedVisibility(
+            visible = showControls,
+            enter = fadeIn() + slideInVertically(),
+            exit = fadeOut() + slideOutVertically(),
+            modifier = Modifier.align(Alignment.TopCenter)
+        ) {
+            TopAppBar(
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "${pagerState.currentPage + 1}/${photos.size}",
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(
+                            Icons.Default.ArrowBack,
+                            contentDescription = "Geri",
+                            tint = Color.White
+                        )
+                    }
+                },
+                actions = {
+                    Text(
+                        text = "Çöp Kutusu",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(end = 16.dp)
+                    )
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Black.copy(alpha = 0.7f)
+                )
+            )
+        }
+
+        // Navigation Arrows
+        AnimatedVisibility(
+            visible = showControls && photos.size > 1,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.CenterStart)
+        ) {
+            IconButton(
+                onClick = {
+                    scope.launch {
+                        if (pagerState.currentPage > 0) {
+                            pagerState.animateScrollToPage(pagerState.currentPage - 1)
+                        }
+                    }
+                },
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Icon(
+                    Icons.Default.ArrowBack,
+                    contentDescription = "Önceki",
+                    tint = Color.White,
+                    modifier = Modifier.size(48.dp)
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = showControls && photos.size > 1,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.CenterEnd)
+        ) {
+            IconButton(
+                onClick = {
+                    scope.launch {
+                        if (pagerState.currentPage < photos.size - 1) {
+                            pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                        }
+                    }
+                },
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Icon(
+                    Icons.Default.ArrowForward,
+                    contentDescription = "Sonraki",
+                    tint = Color.White,
+                    modifier = Modifier.size(48.dp)
+                )
+            }
+        }
+
+        // Gesture hint overlay
+        if (showControls) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 32.dp)
+                    .background(
+                        Color.Black.copy(alpha = 0.7f),
+                        shape = MaterialTheme.shapes.medium
+                    )
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.ArrowUpward,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "Yukarı: Kalıcı Sil",
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.ArrowDownward,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "Aşağı: Geri Yükle",
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun TrashPhotoItem(
+private fun SwipeableTrashPhotoPage(
     photo: TrashedPhoto,
-    onRestore: () -> Unit,
-    onDeletePermanently: () -> Unit
+    onSwipeUp: () -> Unit,
+    onSwipeDown: () -> Unit,
+    onTap: () -> Unit
 ) {
-    var showMenu by remember { mutableStateOf(false) }
-    var showDeleteDialog by remember { mutableStateOf(false) }
+    var offsetY by remember { mutableStateOf(0f) }
+    val threshold = 300f // Swipe threshold in pixels
 
-    Card(
+    Box(
         modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(1f),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            .fillMaxSize()
+            .clickable(
+                indication = null,
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+            ) {
+                onTap()
+            }
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragEnd = {
+                        if (offsetY < -threshold) {
+                            // Swiped up - delete permanently
+                            onSwipeUp()
+                        } else if (offsetY > threshold) {
+                            // Swiped down - restore
+                            onSwipeDown()
+                        }
+                        offsetY = 0f
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        offsetY += dragAmount.y
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center
     ) {
-        Box {
-            // Photo thumbnail
-            AsyncImage(
-                model = File(photo.trashFilePath),
-                contentDescription = photo.displayName,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
+        AsyncImage(
+            model = File(photo.trashFilePath),
+            contentDescription = photo.displayName,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    translationY = offsetY
+                    alpha = 1f - (kotlin.math.abs(offsetY) / threshold).coerceIn(0f, 0.7f)
+                },
+            contentScale = ContentScale.Fit
+        )
 
-            // Actions menu button
-            IconButton(
-                onClick = { showMenu = true },
-                modifier = Modifier.align(Alignment.TopEnd)
+        // Swipe indicator - up for delete
+        if (offsetY < -50f) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Icon(
-                    Icons.Default.MoreVert,
-                    contentDescription = "Actions",
-                    tint = MaterialTheme.colorScheme.onSurface
+                    Icons.Default.DeleteForever,
+                    contentDescription = null,
+                    tint = Color.Red,
+                    modifier = Modifier
+                        .size(64.dp)
+                        .alpha((kotlin.math.abs(offsetY) / threshold).coerceIn(0f, 1f))
                 )
-            }
-
-            // Dropdown menu
-            DropdownMenu(
-                expanded = showMenu,
-                onDismissRequest = { showMenu = false }
-            ) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.restore_photo)) },
-                    onClick = {
-                        onRestore()
-                        showMenu = false
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.RestoreFromTrash, contentDescription = null)
-                    }
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.delete_permanently)) },
-                    onClick = {
-                        showDeleteDialog = true
-                        showMenu = false
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.DeleteForever, contentDescription = null)
-                    }
+                Text(
+                    "Kalıcı Sil",
+                    color = Color.Red,
+                    modifier = Modifier.alpha((kotlin.math.abs(offsetY) / threshold).coerceIn(0f, 1f))
                 )
             }
         }
-    }
 
-    // Delete confirmation dialog
-    if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text(stringResource(R.string.confirm_delete)) },
-            text = { Text(stringResource(R.string.confirm_delete_message)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onDeletePermanently()
-                        showDeleteDialog = false
-                    }
-                ) {
-                    Text(stringResource(R.string.delete))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text(stringResource(R.string.cancel))
-                }
+        // Swipe indicator - down for restore
+        if (offsetY > 50f) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    Icons.Default.RestoreFromTrash,
+                    contentDescription = null,
+                    tint = Color.Green,
+                    modifier = Modifier
+                        .size(64.dp)
+                        .alpha((offsetY / threshold).coerceIn(0f, 1f))
+                )
+                Text(
+                    "Geri Yükle",
+                    color = Color.Green,
+                    modifier = Modifier.alpha((offsetY / threshold).coerceIn(0f, 1f))
+                )
             }
-        )
+        }
     }
 }

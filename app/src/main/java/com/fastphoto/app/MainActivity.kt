@@ -37,7 +37,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun FastPhotoApp() {
     val navController = rememberNavController()
@@ -52,55 +52,10 @@ fun FastPhotoApp() {
     val permissionsState = rememberMultiplePermissionsState(permissions)
 
     if (permissionsState.allPermissionsGranted) {
-        Scaffold(
-            bottomBar = {
-                NavigationBar {
-                    val navBackStackEntry by navController.currentBackStackEntryAsState()
-                    val currentDestination = navBackStackEntry?.destination
-
-                    // Albums tab
-                    NavigationBarItem(
-                        icon = { Icon(Icons.Default.Photo, contentDescription = null) },
-                        label = { Text(stringResource(R.string.nav_albums)) },
-                        selected = currentDestination?.hierarchy?.any {
-                            it.route == Screen.Albums.route
-                        } == true,
-                        onClick = {
-                            navController.navigate(Screen.Albums.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        }
-                    )
-
-                    // Trash tab
-                    NavigationBarItem(
-                        icon = { Icon(Icons.Default.Delete, contentDescription = null) },
-                        label = { Text(stringResource(R.string.nav_trash)) },
-                        selected = currentDestination?.hierarchy?.any {
-                            it.route == Screen.Trash.route
-                        } == true,
-                        onClick = {
-                            navController.navigate(Screen.Trash.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        }
-                    )
-                }
-            }
-        ) { paddingValues ->
-            NavGraph(
-                navController = navController,
-                startDestination = Screen.Albums.route
-            )
-        }
+        NavGraph(
+            navController = navController,
+            startDestination = Screen.PhotoViewer.route
+        )
     } else {
         // Permission request screen
         PermissionRequestScreen(

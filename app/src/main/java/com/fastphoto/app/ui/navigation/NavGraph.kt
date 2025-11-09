@@ -14,9 +14,10 @@ import com.fastphoto.app.ui.screens.TrashScreen
  * Navigation routes for the app
  */
 sealed class Screen(val route: String) {
-    object Albums : Screen("albums")
-    object Photos : Screen("photos/{bucketId}") {
-        fun createRoute(bucketId: String) = "photos/$bucketId"
+    object PhotoViewer : Screen("photoViewer?bucketId={bucketId}") {
+        fun createRoute(bucketId: String? = null) =
+            if (bucketId != null) "photoViewer?bucketId=$bucketId"
+            else "photoViewer"
     }
     object Trash : Screen("trash")
 }
@@ -24,40 +25,37 @@ sealed class Screen(val route: String) {
 @Composable
 fun NavGraph(
     navController: NavHostController,
-    startDestination: String = Screen.Albums.route
+    startDestination: String = Screen.PhotoViewer.route
 ) {
     NavHost(
         navController = navController,
         startDestination = startDestination
     ) {
-        // Albums screen
-        composable(Screen.Albums.route) {
-            AlbumListScreen(
-                onAlbumClick = { album ->
-                    navController.navigate(Screen.Photos.createRoute(album.bucketId))
-                }
-            )
-        }
-
-        // Photo viewer screen
+        // Main Photo viewer screen
         composable(
-            route = Screen.Photos.route,
+            route = Screen.PhotoViewer.route,
             arguments = listOf(
                 navArgument("bucketId") {
                     type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
                 }
             )
         ) {
             PhotoViewerScreen(
-                onNavigateBack = {
-                    navController.popBackStack()
+                onNavigateToTrash = {
+                    navController.navigate(Screen.Trash.route)
                 }
             )
         }
 
         // Trash screen
         composable(Screen.Trash.route) {
-            TrashScreen()
+            TrashScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
         }
     }
 }
