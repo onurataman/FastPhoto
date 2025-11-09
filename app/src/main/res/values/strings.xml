@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FastPhoto</string>
+
+    <!-- Navigation -->
+    <string name="nav_albums">Albümler</string>
+    <string name="nav_photos">Fotoğraflar</string>
+    <string name="nav_trash">Çöp Kutusu</string>
+
+    <!-- Permissions -->
+    <string name="permission_required">İzin Gerekli</string>
+    <string name="permission_photos_rationale">FastPhoto\'nun fotoğraflarınızı görüntüleyebilmesi için depolama iznine ihtiyacı var.</string>
+    <string name="permission_denied">İzin reddedildi. Lütfen ayarlardan izin verin.</string>
+    <string name="grant_permission">İzin Ver</string>
+    <string name="open_settings">Ayarları Aç</string>
+
+    <!-- Albums -->
+    <string name="albums_title">Albümler</string>
+    <string name="album_photos_count">%d fotoğraf</string>
+    <string name="no_albums_found">Albüm bulunamadı</string>
+
+    <!-- Photo Viewer -->
+    <string name="delete_photo">Fotoğrafı Sil</string>
+    <string name="photo_deleted">Fotoğraf çöp kutusuna taşındı</string>
+    <string name="photo_info">Bilgi</string>
+    <string name="photo_count">%1$d / %2$d</string>
+
+    <!-- Trash -->
+    <string name="trash_title">Çöp Kutusu</string>
+    <string name="trash_empty">Çöp kutusu boş</string>
+    <string name="restore_photo">Geri Yükle</string>
+    <string name="delete_permanently">Kalıcı Sil</string>
+    <string name="photo_restored">Fotoğraf geri yüklendi</string>
+    <string name="photo_deleted_permanently">Fotoğraf kalıcı olarak silindi</string>
+    <string name="confirm_delete">Silme Onayı</string>
+    <string name="confirm_delete_message">Bu fotoğraf kalıcı olarak silinecek. Emin misiniz?</string>
+    <string name="delete">Sil</string>
+    <string name="cancel">İptal</string>
+    <string name="empty_trash">Çöp Kutusunu Boşalt</string>
+    <string name="confirm_empty_trash">Tüm fotoğraflar kalıcı olarak silinecek. Emin misiniz?</string>
+
+    <!-- Errors -->
+    <string name="error_loading_albums">Albümler yüklenirken hata oluştu</string>
+    <string name="error_loading_photos">Fotoğraflar yüklenirken hata oluştu</string>
+    <string name="error_deleting_photo">Fotoğraf silinirken hata oluştu</string>
+    <string name="error_restoring_photo">Fotoğraf geri yüklenirken hata oluştu</string>
+
+    <!-- General -->
+    <string name="loading">Yükleniyor…</string>
+    <string name="retry">Tekrar Dene</string>
+    <string name="close">Kapat</string>
+</resources>
