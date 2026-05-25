@@ -13,8 +13,8 @@ android {
         applicationId = "com.fastphoto.app"
         minSdk = 29
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.1.1"
+        versionCode = 4
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -22,13 +22,32 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            val envKeystoreFile = System.getenv("KEYSTORE_FILE")
+            val keystoreFile = if (!envKeystoreFile.isNullOrBlank()) {
+                file(envKeystoreFile)
+            } else {
+                rootProject.file("keystore/fastphoto-release.jks")
+            }
+            if (keystoreFile.exists()) {
+                storeFile = keystoreFile
+                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
+                keyAlias = System.getenv("KEY_ALIAS") ?: "fastphoto"
+                keyPassword = System.getenv("KEY_PASSWORD") ?: ""
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 

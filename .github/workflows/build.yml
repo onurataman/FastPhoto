@@ -26,17 +26,28 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    - name: Build APK
-      run: ./gradlew assembleDebug
+    - name: Decode Release Keystore
+      run: |
+        mkdir -p keystore
+        echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > keystore/fastphoto-release.jks
+        ls -lh keystore/
+
+    - name: Build Release APK
+      env:
+        KEYSTORE_FILE: ${{ github.workspace }}/keystore/fastphoto-release.jks
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      run: ./gradlew assembleRelease
 
     - name: Rename APK for Production Look
-      run: mv app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/FastPhoto.apk
+      run: mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/FastPhoto.apk
 
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
       with:
         name: FastPhoto
-        path: app/build/outputs/apk/debug/FastPhoto.apk
+        path: app/build/outputs/apk/release/FastPhoto.apk
 
     - name: Delete previous 'latest' release
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
@@ -51,8 +62,9 @@ jobs:
         tag_name: latest
         name: Latest Build
         body: |
-          Auto-generated latest build from main.
+          Auto-generated latest release build from main.
+          Properly signed release APK (~10MB, no debug-key warnings).
           Direct download: https://github.com/onurataman/FastPhoto/releases/latest/download/FastPhoto.apk
-        files: app/build/outputs/apk/debug/FastPhoto.apk
+        files: app/build/outputs/apk/release/FastPhoto.apk
         make_latest: true
         prerelease: false

@@ -56,6 +56,13 @@ captures/
 # Keystore files
 *.jks
 *.keystore
+*.jks.b64
+keystore/
+
+# Local secrets (keystore passwords etc.) — NEVER commit
+.env
+.env.local
+*.env
 
 # External native build folder generated in Android Studio 2.2 and later
 .externalNativeBuild
