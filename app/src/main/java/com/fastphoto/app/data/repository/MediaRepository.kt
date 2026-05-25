@@ -32,7 +32,8 @@ class MediaRepository @Inject constructor(
                 MediaStore.Images.Media._ID,
                 MediaStore.Images.Media.BUCKET_ID,
                 MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
-                MediaStore.Images.Media.DATE_ADDED
+                MediaStore.Images.Media.DATE_ADDED,
+                MediaStore.Images.Media.RELATIVE_PATH
             )
 
             val sortOrder = "${MediaStore.Images.Media.DATE_TAKEN} DESC, ${MediaStore.Images.Media.DATE_ADDED} DESC"
@@ -53,10 +54,12 @@ class MediaRepository @Inject constructor(
                 val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
                 val bucketIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_ID)
                 val bucketNameColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
+                val relativePathColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.RELATIVE_PATH)
 
                 while (cursor.moveToNext()) {
                     val bucketId = cursor.getString(bucketIdColumn) ?: continue
                     val bucketName = cursor.getString(bucketNameColumn) ?: "Unknown"
+                    val relativePath = cursor.getString(relativePathColumn) ?: ""
                     val id = cursor.getLong(idColumn)
 
                     if (!albums.containsKey(bucketId)) {
@@ -70,7 +73,8 @@ class MediaRepository @Inject constructor(
                             name = bucketName,
                             thumbnailUri = thumbnailUri,
                             photoCount = 1,
-                            bucketId = bucketId
+                            bucketId = bucketId,
+                            relativePath = relativePath
                         )
                     } else {
                         albums[bucketId] = albums[bucketId]!!.copy(
@@ -187,15 +191,16 @@ class MediaRepository @Inject constructor(
      * Insert + write goes through the app's own permissions; no system
      * confirmation dialog is required.
      */
-    suspend fun copyPhotoToAlbum(photo: Photo, targetAlbumName: String): Result<Uri> = withContext(Dispatchers.IO) {
+    suspend fun copyPhotoToAlbum(photo: Photo, targetRelativePath: String): Result<Uri> = withContext(Dispatchers.IO) {
         try {
+            val normalizedPath = if (targetRelativePath.endsWith("/")) targetRelativePath else "$targetRelativePath/"
             val values = android.content.ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, photo.displayName)
                 put(MediaStore.Images.Media.MIME_TYPE, photo.mimeType)
                 if (photo.width > 0) put(MediaStore.Images.Media.WIDTH, photo.width)
                 if (photo.height > 0) put(MediaStore.Images.Media.HEIGHT, photo.height)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/$targetAlbumName/")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, normalizedPath)
                     put(MediaStore.Images.Media.IS_PENDING, 1)
                 }
             }

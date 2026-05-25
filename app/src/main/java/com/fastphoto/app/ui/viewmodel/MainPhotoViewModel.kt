@@ -150,7 +150,8 @@ class MainPhotoViewModel @Inject constructor(
                 return@launch
             }
 
-            mediaRepository.copyPhotoToAlbum(photo, targetAlbum.name)
+            val targetPath = targetAlbum.relativePath.ifBlank { "DCIM/${targetAlbum.name}/" }
+            mediaRepository.copyPhotoToAlbum(photo, targetPath)
                 .onSuccess {
                     // Original'i app içinden gizle (trash'e at). Sistemden silme
                     // toplu olarak çöp kutusundan tetiklenir.
@@ -175,6 +176,20 @@ class MainPhotoViewModel @Inject constructor(
                 }
                 .onFailure { error ->
                     _events.emit(MainPhotoEvent.Error(error.message ?: "Move failed."))
+                }
+        }
+    }
+
+    fun commitPending() {
+        viewModelScope.launch {
+            val trashed = trashRepository.getTrashedPhotos().first()
+            if (trashed.isEmpty()) return@launch
+            trashRepository.bulkDeleteFromSystem(trashed)
+                .onSuccess {
+                    _events.emit(MainPhotoEvent.Message("Sent ${trashed.size} photo(s) for system approval"))
+                }
+                .onFailure { error ->
+                    _events.emit(MainPhotoEvent.Error(error.message ?: "Commit failed"))
                 }
         }
     }

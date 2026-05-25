@@ -47,19 +47,19 @@ fun TrashScreen(
             when (event) {
                 is TrashEvent.PhotoRestored -> {
                     snackbarHostState.showSnackbar(
-                        message = "Fotoğraf geri yüklendi",
+                        message = "Photo restored",
                         duration = SnackbarDuration.Short
                     )
                 }
                 is TrashEvent.PhotoDeletedPermanently -> {
                     snackbarHostState.showSnackbar(
-                        message = "Fotoğraf kalıcı olarak silindi",
+                        message = "Photo deleted permanently",
                         duration = SnackbarDuration.Short
                     )
                 }
                 is TrashEvent.TrashEmptied -> {
                     snackbarHostState.showSnackbar(
-                        message = "Çöp kutusu boşaltıldı",
+                        message = "Trash emptied",
                         duration = SnackbarDuration.Short
                     )
                 }
@@ -109,7 +109,7 @@ fun TrashScreen(
                         )
                         Spacer(modifier = Modifier.height(24.dp))
                         Button(onClick = onNavigateBack) {
-                            Text("Ana Ekrana Dön")
+                            Text("Back to Home")
                         }
                     }
                 }
@@ -187,7 +187,7 @@ private fun TrashPagerWithGestures(
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             Icons.Default.ArrowBack,
-                            contentDescription = "Geri",
+                            contentDescription = "Back",
                             tint = Color.White
                         )
                     }
@@ -204,7 +204,7 @@ private fun TrashPagerWithGestures(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "Toplu Sil (${photos.size})",
+                            text = "Bulk Delete (${photos.size})",
                             color = Color.Red
                         )
                     }
@@ -234,7 +234,7 @@ private fun TrashPagerWithGestures(
             ) {
                 Icon(
                     Icons.Default.ArrowBack,
-                    contentDescription = "Önceki",
+                    contentDescription = "Previous",
                     tint = Color.White,
                     modifier = Modifier.size(48.dp)
                 )
@@ -259,7 +259,7 @@ private fun TrashPagerWithGestures(
             ) {
                 Icon(
                     Icons.Default.ArrowForward,
-                    contentDescription = "Sonraki",
+                    contentDescription = "Next",
                     tint = Color.White,
                     modifier = Modifier.size(48.dp)
                 )
@@ -270,21 +270,21 @@ private fun TrashPagerWithGestures(
             AlertDialog(
                 onDismissRequest = { showBulkConfirm = false },
                 icon = { Icon(Icons.Default.Warning, null, tint = Color.Red) },
-                title = { Text("Toplu Sil") },
+                title = { Text("Bulk Delete") },
                 text = {
                     Text(
-                        "${photos.size} fotoğraf telefondan kalıcı olarak silinecek. " +
-                        "Android tek seferlik bir onay dialog'u gösterecek. Devam edilsin mi?"
+                        "${photos.size} photo(s) will be permanently deleted from your device. " +
+                        "Android will show a single confirmation dialog. Continue?"
                     )
                 },
                 confirmButton = {
                     TextButton(onClick = {
                         showBulkConfirm = false
                         onBulkDelete()
-                    }) { Text("Evet, Sil", color = Color.Red) }
+                    }) { Text("Yes, Delete", color = Color.Red) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showBulkConfirm = false }) { Text("Vazgeç") }
+                    TextButton(onClick = { showBulkConfirm = false }) { Text("Cancel") }
                 }
             )
         }
@@ -311,7 +311,7 @@ private fun TrashPagerWithGestures(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        "Yukarı: Kalıcı Sil",
+                        "Up: Delete Permanently",
                         color = Color.White,
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -326,7 +326,7 @@ private fun TrashPagerWithGestures(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        "Aşağı: Geri Yükle",
+                        "Down: Restore",
                         color = Color.White,
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -401,7 +401,7 @@ private fun SwipeableTrashPhotoPage(
                         .alpha((kotlin.math.abs(offsetY) / threshold).coerceIn(0f, 1f))
                 )
                 Text(
-                    "Kalıcı Sil",
+                    "Delete Permanently",
                     color = Color.Red,
                     modifier = Modifier.alpha((kotlin.math.abs(offsetY) / threshold).coerceIn(0f, 1f))
                 )
@@ -422,7 +422,7 @@ private fun SwipeableTrashPhotoPage(
                         .alpha((offsetY / threshold).coerceIn(0f, 1f))
                 )
                 Text(
-                    "Geri Yükle",
+                    "Restore",
                     color = Color.Green,
                     modifier = Modifier.alpha((offsetY / threshold).coerceIn(0f, 1f))
                 )

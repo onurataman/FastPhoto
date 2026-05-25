@@ -10,5 +10,6 @@ data class Album(
     val name: String,
     val thumbnailUri: Uri?,
     val photoCount: Int,
-    val bucketId: String
+    val bucketId: String,
+    val relativePath: String
 )

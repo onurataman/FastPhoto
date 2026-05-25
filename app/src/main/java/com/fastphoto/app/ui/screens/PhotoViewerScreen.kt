@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -52,6 +53,7 @@ fun PhotoViewerScreen(
 
     var showAlbumPicker by remember { mutableStateOf(false) }
     var showMovePicker by remember { mutableStateOf<Photo?>(null) }
+    var showCommitConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
@@ -99,7 +101,7 @@ fun PhotoViewerScreen(
                     )
                 }
 
-                    PhotoSwipeStack(
+                is MainPhotoUiState.Success -> PhotoSwipeStack(
                     photos = state.photos,
                     currentAlbum = state.currentAlbum,
                     trashCount = state.trashCount,
@@ -110,7 +112,8 @@ fun PhotoViewerScreen(
                     onRequestMove = { photo -> showMovePicker = photo },
                     onNavigateToTrash = onNavigateToTrash,
                     onShowAlbumPicker = { showAlbumPicker = true },
-                    onMoveToRecent = viewModel::movePhotoToFolder
+                    onMoveToRecent = viewModel::movePhotoToFolder,
+                    onRequestCommit = { showCommitConfirm = true }
                 )
 
                 is MainPhotoUiState.Error -> Column(
@@ -163,6 +166,32 @@ fun PhotoViewerScreen(
             onDismiss = { showMovePicker = null }
         )
     }
+
+    if (showCommitConfirm && success != null && success.trashCount > 0) {
+        AlertDialog(
+            onDismissRequest = { showCommitConfirm = false },
+            icon = { Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary) },
+            title = { Text("Commit Pending Changes") },
+            text = {
+                Text(
+                    "${success.trashCount} photo(s) are waiting for system approval to be removed from your gallery. " +
+                    "Tap Confirm to send a single Android approval dialog for all of them."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showCommitConfirm = false
+                    viewModel.commitPending()
+                }) { Text("Confirm") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showCommitConfirm = false
+                    onNavigateToTrash()
+                }) { Text("Open Trash") }
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -178,12 +207,12 @@ private fun PhotoSwipeStack(
     onRequestMove: (Photo) -> Unit,
     onNavigateToTrash: () -> Unit,
     onShowAlbumPicker: () -> Unit,
-    onMoveToRecent: (Photo, String) -> Unit
+    onMoveToRecent: (Photo, String) -> Unit,
+    onRequestCommit: () -> Unit
 ) {
     var currentIndex by remember(photos.firstOrNull()?.id) { mutableStateOf(0) }
     var showControls by remember { mutableStateOf(true) }
 
-    // Foto listesi güncellendiğinde index'in geçerli kalmasını sağla
     LaunchedEffect(photos.size) {
         if (currentIndex >= photos.size) currentIndex = (photos.size - 1).coerceAtLeast(0)
     }
@@ -202,7 +231,6 @@ private fun PhotoSwipeStack(
     val scope = rememberCoroutineScope()
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Alttaki "next" kart - drag sırasında peek olarak görünür
         if (next != null) {
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
@@ -251,25 +279,21 @@ private fun PhotoSwipeStack(
                                 scope.launch {
                                     when {
                                         absDy > absDx && dy < -threshold -> {
-                                            // yukarı → sil
                                             offsetY.animateTo(-screenHeightPx * 1.2f, tween(200))
                                             onDeletePhoto(photo)
                                             offsetX.snapTo(0f); offsetY.snapTo(0f)
                                         }
                                         absDy > absDx && dy > threshold -> {
-                                            // aşağı → klasör seç
                                             offsetX.animateTo(0f, spring())
                                             offsetY.animateTo(0f, spring())
                                             onRequestMove(photo)
                                         }
                                         absDx > absDy && dx < -threshold && currentIndex < photos.size - 1 -> {
-                                            // sol → sonraki
                                             offsetX.animateTo(-screenWidthPx * 1.2f, tween(180))
                                             currentIndex += 1
                                             offsetX.snapTo(0f); offsetY.snapTo(0f)
                                         }
                                         absDx > absDy && dx > threshold && currentIndex > 0 -> {
-                                            // sağ → önceki
                                             offsetX.animateTo(screenWidthPx * 1.2f, tween(180))
                                             currentIndex -= 1
                                             offsetX.snapTo(0f); offsetY.snapTo(0f)
@@ -293,11 +317,9 @@ private fun PhotoSwipeStack(
                 contentScale = ContentScale.Fit
             )
 
-            // Swipe yön göstergeleri
             SwipeHints(offsetX = offsetX.value, offsetY = offsetY.value, threshold = threshold)
         }
 
-        // Üst bar
         AnimatedVisibility(
             visible = showControls,
             enter = fadeIn() + slideInVertically(),
@@ -343,9 +365,22 @@ private fun PhotoSwipeStack(
                     }
                 },
                 actions = {
+                    if (trashCount > 0) {
+                        BadgedBox(
+                            badge = { Badge { Text(trashCount.toString()) } }
+                        ) {
+                            IconButton(onClick = onRequestCommit) {
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = "Commit pending",
+                                    tint = Color(0xFF4CAF50)
+                                )
+                            }
+                        }
+                    }
                     BadgedBox(
                         badge = {
-                            if (trashCount > 0) Badge(modifier = Modifier.offset(x = (-8).dp, y = 8.dp)) { Text(trashCount.toString()) }
+                            if (trashCount > 0) Badge { Text(trashCount.toString()) }
                         }
                     ) {
                         IconButton(onClick = onNavigateToTrash) {
@@ -363,7 +398,6 @@ private fun PhotoSwipeStack(
             )
         }
 
-        // Sol/sağ ok butonları
         AnimatedVisibility(
             visible = showControls && currentIndex > 0,
             enter = fadeIn(),
@@ -378,7 +412,7 @@ private fun PhotoSwipeStack(
             ) {
                 Icon(
                     Icons.Default.ArrowBack,
-                    contentDescription = "Önceki",
+                    contentDescription = "Previous",
                     tint = Color.White.copy(alpha = 0.8f),
                     modifier = Modifier.size(40.dp)
                 )
@@ -398,14 +432,13 @@ private fun PhotoSwipeStack(
             ) {
                 Icon(
                     Icons.Default.ArrowForward,
-                    contentDescription = "Sonraki",
+                    contentDescription = "Next",
                     tint = Color.White.copy(alpha = 0.8f),
                     modifier = Modifier.size(40.dp)
                 )
             }
         }
 
-        // Sağ alt FAB - Klasöre taşı
         AnimatedVisibility(
             visible = showControls && current != null,
             enter = fadeIn(),
@@ -426,7 +459,6 @@ private fun PhotoSwipeStack(
             }
         }
 
-        // Recent Folders Bar (Bottom Center)
         AnimatedVisibility(
             visible = showControls && recentAlbums.isNotEmpty(),
             enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
@@ -453,7 +485,6 @@ private fun PhotoSwipeStack(
             }
         }
 
-        // Sol alt Undo FAB
         AnimatedVisibility(
             visible = undoStackSize > 0 && showControls,
             enter = fadeIn(),
