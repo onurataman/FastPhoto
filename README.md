@@ -1,23 +1,36 @@
 # FastPhoto (S24 Ultra Edition) 🚀
 
-Samsung Galaxy S24 Ultra gibi yüksek performanslı Android cihazlar için özel olarak tasarlanmış, "Işık Hızında Fotoğraf Organizasyon ve Temizlik" galerisi.
+A blazing-fast photo organizer & cleanup gallery built for high-performance Android devices like the Samsung Galaxy S24 Ultra.
 
-## 🌟 Yeni Nesil Özellikler (UX)
-- **Aşağı Kaydırarak Taşıma (Swipe Down to Move):** Fotoğrafı aşağı kaydırdığınızda, ekranın altındaki "Son Kullanılan Klasörler" barında seçili olan hedef klasöre tek hamlede (1 saniye) taşınır.
-- **Yukarı Kaydırarak Silme (Swipe Up to Delete):** Fotoğrafı yukarı fırlattığınızda anında işletim sisteminin Çöp Kutusuna (Trash) gider. Sıfır bekleme, sıfır "Emin misiniz?" onay sorusu. (Kök erişimi sayesinde).
-- **Zaman Makinesi (Undo Stack):** Çok mu hızlı kaydırdınız? Yanlışlıkla sildiniz mi? Sol altta beliren **Geri Al (Undo)** butonuna basarak son 10 işleminizi milisaniyeler içinde geri alıp fotoğrafı eski yerine getirebilirsiniz.
-- **Akıllı Klasör Barı:** Sürekli klasör seçmekle uğraşmazsınız. Alt taraftaki yatay kaydırılabilir bar, hedef klasörlerinizi her zaman başparmağınızın altında hazır tutar.
+## 🌟 Key UX Features
+- **Swipe Up = Delete:** Toss the photo upward and it lands in the app's local trash instantly. No "Are you sure?" prompts per swipe.
+- **Swipe Down = Move:** Open the folder picker (or hit a recent-folder chip at the bottom) to move the photo into the album of your choice.
+- **Swipe Left / Right = Navigate:** Pure navigation, no MediaStore side-effects.
+- **Pending Commit Button (top bar):** A yellow hourglass with a count appears whenever you have pending changes. Tap it to push a single Android approval dialog for all queued deletes at once. When everything is synced, it turns into a green check.
+- **Undo Stack:** Last 10 actions can be reverted from the bottom-left "Undo" button.
+- **DCIM-aware Move:** Moving a `DCIM/Camera` photo to another album writes into the album's *real* parent (`DCIM/...` or `Pictures/...`) — no more accidental duplicate `Pictures/Camera` folders.
 
-## 🛠 Teknik Mimari
-- **Dil:** %100 Kotlin
-- **Arayüz:** Jetpack Compose (120Hz ekranlar için LazyRow ve Donanımsal Animasyonlar)
-- **Mimari:** MVVM, Coroutines (Asenkron İşlemler)
-- **Depolama:** MediaStore API, Room Database (Geri al hafızası için)
+## 🛠 Tech Stack
+- **Language:** 100% Kotlin
+- **UI:** Jetpack Compose (Material 3)
+- **Architecture:** MVVM + Coroutines + Hilt
+- **Storage:** MediaStore API, Room DB (for the undo stack & local trash)
 
-## 📦 Kurulum ve Derleme (GitHub Actions)
-Bilgisayarınızda hiçbir kod derleme aracı kurmanıza gerek kalmadan doğrudan buluttan APK alabilirsiniz.
-1. GitHub deponuzdaki **Actions** sekmesine gidin.
-2. Sol menüden **"Build FastPhoto APK"** seçeneğine tıklayın.
-3. Sağdaki **"Run workflow"** butonuna basın.
-4. İşlem 3-4 dakika sürecek. Tamamlandığında aşağıdan **`FastPhoto-Debug-APK.zip`** dosyasını indirin.
-5. İçinden çıkan `.apk` dosyasını telefonunuza atın ve kurun.
+## 📦 Download the Latest APK
+Every push to `main` is built by GitHub Actions and published as the *Latest* release. The download URL is stable — bookmark it:
+
+**👉 https://github.com/onurataman/FastPhoto/releases/latest/download/FastPhoto.apk**
+
+Older builds (and the raw artifact ZIP) are also available under the [Actions](https://github.com/onurataman/FastPhoto/actions) tab.
+
+## 🔒 Permissions
+| Permission | Why |
+|---|---|
+| `READ_MEDIA_IMAGES` / `READ_EXTERNAL_STORAGE` | Read your photo library |
+| `ACCESS_MEDIA_LOCATION` | Preserve EXIF location when copying |
+
+No internet permission, no telemetry, no cloud. The app runs fully offline.
+
+## 🗂 Versioning
+- **1.1.0** — DCIM/Pictures path fix, Pending Commit button, full English UI, GitHub Releases auto-publish.
+- **1.0.0** — Initial release: Tinder-style swipe, custom in-app trash, bulk delete.

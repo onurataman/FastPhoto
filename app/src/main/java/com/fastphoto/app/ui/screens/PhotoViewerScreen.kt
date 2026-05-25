@@ -365,17 +365,22 @@ private fun PhotoSwipeStack(
                     }
                 },
                 actions = {
-                    if (trashCount > 0) {
-                        BadgedBox(
-                            badge = { Badge { Text(trashCount.toString()) } }
-                        ) {
-                            IconButton(onClick = onRequestCommit) {
-                                Icon(
-                                    Icons.Default.CheckCircle,
-                                    contentDescription = "Commit pending",
-                                    tint = Color(0xFF4CAF50)
-                                )
+                    val pending = trashCount > 0
+                    val commitTint = if (pending) Color(0xFFFFC107) else Color(0xFF4CAF50)
+                    val commitDesc = if (pending) "Pending: $trashCount" else "All synced"
+                    BadgedBox(
+                        badge = {
+                            if (pending) Badge(containerColor = Color(0xFFFFC107)) {
+                                Text(trashCount.toString(), color = Color.Black)
                             }
+                        }
+                    ) {
+                        IconButton(onClick = { if (pending) onRequestCommit() }) {
+                            Icon(
+                                imageVector = if (pending) Icons.Default.HourglassTop else Icons.Default.CheckCircle,
+                                contentDescription = commitDesc,
+                                tint = commitTint
+                            )
                         }
                     }
                     BadgedBox(

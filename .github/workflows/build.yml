@@ -5,6 +5,9 @@ on:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -29,8 +32,27 @@ jobs:
     - name: Rename APK for Production Look
       run: mv app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/FastPhoto.apk
 
-    - name: Upload APK
+    - name: Upload APK artifact
       uses: actions/upload-artifact@v4
       with:
         name: FastPhoto
         path: app/build/outputs/apk/debug/FastPhoto.apk
+
+    - name: Delete previous 'latest' release
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      run: gh release delete latest --yes --cleanup-tag || true
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Publish 'latest' release
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: latest
+        name: Latest Build
+        body: |
+          Auto-generated latest build from main.
+          Direct download: https://github.com/onurataman/FastPhoto/releases/latest/download/FastPhoto.apk
+        files: app/build/outputs/apk/debug/FastPhoto.apk
+        make_latest: true
+        prerelease: false
