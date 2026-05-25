@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.fastphoto.app.R
 import com.fastphoto.app.data.model.Album
 import com.fastphoto.app.data.model.Photo
@@ -56,7 +57,7 @@ fun PhotoViewerScreen(
         viewModel.events.collect { event ->
             when (event) {
                 is MainPhotoEvent.PhotoDeleted -> snackbarHostState.showSnackbar(
-                    message = "Fotoğraf çöp kutusuna taşındı",
+                    message = "Photo moved to trash",
                     duration = SnackbarDuration.Short
                 )
                 is MainPhotoEvent.Error -> snackbarHostState.showSnackbar(
@@ -92,22 +93,24 @@ fun PhotoViewerScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "Fotoğraf bulunamadı",
+                        text = "No photos found",
                         color = Color.White,
                         style = MaterialTheme.typography.bodyLarge
                     )
                 }
 
-                is MainPhotoUiState.Success -> PhotoSwipeStack(
+                    PhotoSwipeStack(
                     photos = state.photos,
                     currentAlbum = state.currentAlbum,
                     trashCount = state.trashCount,
                     undoStackSize = viewModel.undoStack.collectAsStateWithLifecycle().value.size,
+                    recentAlbums = viewModel.recentAlbums.collectAsStateWithLifecycle().value,
                     onUndo = viewModel::undoLastAction,
                     onDeletePhoto = viewModel::deletePhoto,
                     onRequestMove = { photo -> showMovePicker = photo },
                     onNavigateToTrash = onNavigateToTrash,
-                    onShowAlbumPicker = { showAlbumPicker = true }
+                    onShowAlbumPicker = { showAlbumPicker = true },
+                    onMoveToRecent = viewModel::movePhotoToFolder
                 )
 
                 is MainPhotoUiState.Error -> Column(
@@ -131,7 +134,7 @@ fun PhotoViewerScreen(
     val success = uiState as? MainPhotoUiState.Success
     if (showAlbumPicker && success != null) {
         AlbumPickerSheet(
-            title = "Klasör Seç",
+            title = "Select Folder",
             albums = success.allAlbums,
             currentBucketId = success.currentAlbum?.bucketId,
             onSelect = { album ->
@@ -149,7 +152,7 @@ fun PhotoViewerScreen(
     val moveTarget = showMovePicker
     if (moveTarget != null && success != null) {
         AlbumPickerSheet(
-            title = "Taşınacak Klasörü Seç",
+            title = "Select Target Folder",
             albums = success.allAlbums.filter { it.bucketId != moveTarget.bucketId },
             currentBucketId = null,
             onSelect = { album ->
@@ -169,11 +172,13 @@ private fun PhotoSwipeStack(
     currentAlbum: Album?,
     trashCount: Int,
     undoStackSize: Int,
+    recentAlbums: List<Album>,
     onUndo: () -> Unit,
     onDeletePhoto: (Photo) -> Unit,
     onRequestMove: (Photo) -> Unit,
     onNavigateToTrash: () -> Unit,
-    onShowAlbumPicker: () -> Unit
+    onShowAlbumPicker: () -> Unit,
+    onMoveToRecent: (Photo, String) -> Unit
 ) {
     var currentIndex by remember(photos.firstOrNull()?.id) { mutableStateOf(0) }
     var showControls by remember { mutableStateOf(true) }
@@ -200,7 +205,10 @@ private fun PhotoSwipeStack(
         // Alttaki "next" kart - drag sırasında peek olarak görünür
         if (next != null) {
             AsyncImage(
-                model = next.uri,
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(next.uri)
+                    .crossfade(false)
+                    .build(),
                 contentDescription = next.displayName,
                 modifier = Modifier
                     .fillMaxSize()
@@ -217,7 +225,10 @@ private fun PhotoSwipeStack(
 
         if (current != null) {
             AsyncImage(
-                model = current.uri,
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(current.uri)
+                    .crossfade(false)
+                    .build(),
                 contentDescription = current.displayName,
                 modifier = Modifier
                     .fillMaxSize()
@@ -314,13 +325,13 @@ private fun PhotoSwipeStack(
                     ) {
                         Icon(
                             Icons.Default.Folder,
-                            contentDescription = "Klasör",
+                            contentDescription = "Folder",
                             tint = Color.White,
                             modifier = Modifier.padding(start = 16.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = currentAlbum?.name ?: "Tüm Fotoğraflar",
+                            text = currentAlbum?.name ?: "All Photos",
                             color = Color.White,
                             style = MaterialTheme.typography.bodyMedium
                         )
@@ -334,13 +345,13 @@ private fun PhotoSwipeStack(
                 actions = {
                     BadgedBox(
                         badge = {
-                            if (trashCount > 0) Badge { Text(trashCount.toString()) }
+                            if (trashCount > 0) Badge(modifier = Modifier.offset(x = (-8).dp, y = 8.dp)) { Text(trashCount.toString()) }
                         }
                     ) {
                         IconButton(onClick = onNavigateToTrash) {
                             Icon(
                                 Icons.Default.Delete,
-                                contentDescription = "Çöp Kutusu",
+                                contentDescription = "Trash",
                                 tint = Color.White
                             )
                         }
@@ -409,9 +420,36 @@ private fun PhotoSwipeStack(
             ) {
                 Icon(
                     Icons.Default.DriveFileMove,
-                    contentDescription = "Klasöre Taşı",
+                    contentDescription = "Move to Folder",
                     tint = MaterialTheme.colorScheme.onPrimaryContainer
                 )
+            }
+        }
+
+        // Recent Folders Bar (Bottom Center)
+        AnimatedVisibility(
+            visible = showControls && recentAlbums.isNotEmpty(),
+            enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 32.dp)
+        ) {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp)
+            ) {
+                items(recentAlbums) { album ->
+                    SuggestionChip(
+                        onClick = { current?.let { onMoveToRecent(it, album.bucketId) } },
+                        label = { Text(album.name) },
+                        icon = { Icon(Icons.Default.Folder, null) },
+                        colors = SuggestionChipDefaults.suggestionChipColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+                            labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    )
+                }
             }
         }
 
@@ -426,8 +464,8 @@ private fun PhotoSwipeStack(
         ) {
             ExtendedFloatingActionButton(
                 onClick = onUndo,
-                icon = { Icon(Icons.Default.Undo, contentDescription = "Geri Al") },
-                text = { Text("Geri Al ($undoStackSize)") },
+                icon = { Icon(Icons.Default.Undo, contentDescription = "Undo") },
+                text = { Text("Undo ($undoStackSize)") },
                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer
             )
@@ -448,7 +486,7 @@ private fun BoxScope.SwipeHints(offsetX: Float, offsetY: Float, threshold: Float
                     .alpha((absY / threshold).coerceIn(0f, 1f))
             ) {
                 Icon(Icons.Default.Delete, null, tint = Color.Red, modifier = Modifier.size(64.dp))
-                Text("Sil", color = Color.Red, style = MaterialTheme.typography.titleLarge)
+                Text("Delete", color = Color.Red, style = MaterialTheme.typography.titleLarge)
             }
         } else if (offsetY > 50f) {
             Column(
@@ -459,7 +497,7 @@ private fun BoxScope.SwipeHints(offsetX: Float, offsetY: Float, threshold: Float
                     .alpha((absY / threshold).coerceIn(0f, 1f))
             ) {
                 Icon(Icons.Default.DriveFileMove, null, tint = Color.Cyan, modifier = Modifier.size(64.dp))
-                Text("Klasöre Taşı", color = Color.Cyan, style = MaterialTheme.typography.titleLarge)
+                Text("Move to Folder", color = Color.Cyan, style = MaterialTheme.typography.titleLarge)
             }
         }
     } else {
@@ -523,7 +561,7 @@ private fun AlbumPickerSheet(
                             Icon(Icons.Default.PhotoLibrary, contentDescription = null)
                             Spacer(modifier = Modifier.width(16.dp))
                             Text(
-                                text = "Tüm Fotoğraflar",
+                                text = "All Photos",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = if (currentBucketId == null) MaterialTheme.colorScheme.primary else Color.Unspecified,
                                 modifier = Modifier.weight(1f)
@@ -552,7 +590,7 @@ private fun AlbumPickerSheet(
                                 color = if (album.bucketId == currentBucketId) MaterialTheme.colorScheme.primary else Color.Unspecified
                             )
                             Text(
-                                text = "${album.photoCount} fotoğraf",
+                                text = "${album.photoCount} photos",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

@@ -35,7 +35,7 @@ class MediaRepository @Inject constructor(
                 MediaStore.Images.Media.DATE_ADDED
             )
 
-            val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
+            val sortOrder = "${MediaStore.Images.Media.DATE_TAKEN} DESC, ${MediaStore.Images.Media.DATE_ADDED} DESC"
 
             val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
@@ -109,7 +109,7 @@ class MediaRepository @Inject constructor(
 
             val selection = "${MediaStore.Images.Media.BUCKET_ID} = ?"
             val selectionArgs = arrayOf(bucketId)
-            val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
+            val sortOrder = "${MediaStore.Images.Media.DATE_TAKEN} DESC, ${MediaStore.Images.Media.DATE_ADDED} DESC"
 
             val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
@@ -154,7 +154,7 @@ class MediaRepository @Inject constructor(
                 MediaStore.Images.Media.RELATIVE_PATH
             )
 
-            val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
+            val sortOrder = "${MediaStore.Images.Media.DATE_TAKEN} DESC, ${MediaStore.Images.Media.DATE_ADDED} DESC"
 
             val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)

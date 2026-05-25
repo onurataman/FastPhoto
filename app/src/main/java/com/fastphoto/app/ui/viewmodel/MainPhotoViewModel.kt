@@ -28,6 +28,9 @@ class MainPhotoViewModel @Inject constructor(
     private val _undoStack = MutableStateFlow<List<Photo>>(emptyList())
     val undoStack: StateFlow<List<Photo>> = _undoStack.asStateFlow()
 
+    private val _recentAlbums = MutableStateFlow<List<Album>>(emptyList())
+    val recentAlbums: StateFlow<List<Album>> = _recentAlbums.asStateFlow()
+
     private var currentBucketId: String? = null
     private var allAlbums: List<Album> = emptyList()
     private var trashedIds: Set<Long> = emptySet()
@@ -119,18 +122,18 @@ class MainPhotoViewModel @Inject constructor(
             val trashedPhoto = trashedList.find { it.originalPhotoId == photoToRestore.id }
 
             if (trashedPhoto == null) {
-                _events.emit(MainPhotoEvent.Error("${photoToRestore.displayName} geri alınamadı (çöp kutusunda bulunamadı)"))
+                _events.emit(MainPhotoEvent.Error("Could not restore ${photoToRestore.displayName} (Not found in trash)"))
                 _undoStack.value = stack.dropLast(1)
                 return@launch
             }
 
             trashRepository.restorePhoto(trashedPhoto)
                 .onSuccess {
-                    _events.emit(MainPhotoEvent.Message("${photoToRestore.displayName} geri alındı!"))
+                    _events.emit(MainPhotoEvent.Message("${photoToRestore.displayName} restored!"))
                     _undoStack.value = stack.dropLast(1)
                 }
                 .onFailure { error ->
-                    _events.emit(MainPhotoEvent.Error(error.message ?: "Geri alma başarısız"))
+                    _events.emit(MainPhotoEvent.Error(error.message ?: "Restore failed"))
                 }
         }
     }
@@ -139,11 +142,11 @@ class MainPhotoViewModel @Inject constructor(
         viewModelScope.launch {
             val targetAlbum = allAlbums.find { it.bucketId == targetBucketId }
             if (targetAlbum == null) {
-                _events.emit(MainPhotoEvent.Error("Hedef klasör bulunamadı!"))
+                _events.emit(MainPhotoEvent.Error("Target folder not found!"))
                 return@launch
             }
             if (targetAlbum.bucketId == photo.bucketId) {
-                _events.emit(MainPhotoEvent.Error("Fotoğraf zaten ${targetAlbum.name} klasöründe."))
+                _events.emit(MainPhotoEvent.Error("Photo is already in ${targetAlbum.name}."))
                 return@launch
             }
 
@@ -157,14 +160,21 @@ class MainPhotoViewModel @Inject constructor(
                             currentStack.add(photo)
                             if (currentStack.size > 10) currentStack.removeAt(0)
                             _undoStack.value = currentStack
-                            _events.emit(MainPhotoEvent.Message("📁 ${targetAlbum.name} klasörüne taşındı"))
+
+                            val currentRecents = _recentAlbums.value.toMutableList()
+                            currentRecents.removeAll { it.bucketId == targetAlbum.bucketId }
+                            currentRecents.add(0, targetAlbum)
+                            if (currentRecents.size > 5) currentRecents.removeLast()
+                            _recentAlbums.value = currentRecents
+
+                            _events.emit(MainPhotoEvent.Message("📁 Moved to ${targetAlbum.name}"))
                         }
                         .onFailure { error ->
-                            _events.emit(MainPhotoEvent.Error("Kopyalandı ama orijinal gizlenemedi: ${error.message}"))
+                            _events.emit(MainPhotoEvent.Error("Copied but could not hide original: ${error.message}"))
                         }
                 }
                 .onFailure { error ->
-                    _events.emit(MainPhotoEvent.Error(error.message ?: "Taşıma başarısız oldu."))
+                    _events.emit(MainPhotoEvent.Error(error.message ?: "Move failed."))
                 }
         }
     }
