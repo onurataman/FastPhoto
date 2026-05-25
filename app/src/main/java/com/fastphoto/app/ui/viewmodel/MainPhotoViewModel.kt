@@ -130,12 +130,25 @@ class MainPhotoViewModel @Inject constructor(
 
     fun movePhotoToFolder(photo: Photo, targetBucketId: String?) {
         viewModelScope.launch {
-            val currentStack = _undoStack.value.toMutableList()
-            currentStack.add(photo)
-            if (currentStack.size > 10) currentStack.removeAt(0)
-            _undoStack.value = currentStack
-            
-            _events.emit(MainPhotoEvent.Message("${photo.displayName} klasöre taşındı!"))
+            val targetAlbum = allAlbums.find { it.bucketId == targetBucketId }
+            if (targetAlbum == null) {
+                _events.emit(MainPhotoEvent.Error("Hedef klasör bulunamadı!"))
+                return@launch
+            }
+
+            mediaRepository.movePhotoToAlbum(photo, targetAlbum.name)
+                .onSuccess {
+                    val currentStack = _undoStack.value.toMutableList()
+                    currentStack.add(photo)
+                    if (currentStack.size > 10) currentStack.removeAt(0)
+                    _undoStack.value = currentStack
+                    
+                    _events.emit(MainPhotoEvent.Message("${photo.displayName} 📁 ${targetAlbum.name} klasörüne taşındı!"))
+                    loadPhotos() // Ekranı güncelle
+                }
+                .onFailure { error ->
+                    _events.emit(MainPhotoEvent.Error(error.message ?: "Taşıma başarısız oldu."))
+                }
         }
     }
 

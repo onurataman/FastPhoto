@@ -178,6 +178,30 @@ class MediaRepository @Inject constructor(
         }
     }
 
+    /**
+     * Physically move photo to another album (Android 10+ Optimized)
+     */
+    suspend fun movePhotoToAlbum(photo: Photo, targetAlbumName: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = android.content.ContentValues().apply {
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/$targetAlbumName/")
+                }
+                
+                val updatedRows = contentResolver.update(photo.uri, values, null, null)
+                if (updatedRows > 0) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(Exception("Dosya taşınamadı. Klasör izinleri gerekebilir."))
+                }
+            } else {
+                Result.failure(Exception("Taşıma işlemi sadece Android 10 ve üzeri cihazlarda desteklenir."))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     private fun extractPhotosFromCursor(cursor: Cursor): List<Photo> {
         val photos = mutableListOf<Photo>()
 
