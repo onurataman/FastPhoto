@@ -1,14 +1,16 @@
 package com.fastphoto.app.ui.screens
 
 import androidx.compose.animation.*
-import androidx.compose.animation.core.*
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -22,6 +24,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -34,6 +38,7 @@ import com.fastphoto.app.ui.viewmodel.MainPhotoEvent
 import com.fastphoto.app.ui.viewmodel.MainPhotoUiState
 import com.fastphoto.app.ui.viewmodel.MainPhotoViewModel
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -43,38 +48,32 @@ fun PhotoViewerScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
 
-    var showFolderPicker by remember { mutableStateOf(false) }
+    var showAlbumPicker by remember { mutableStateOf(false) }
+    var showMovePicker by remember { mutableStateOf<Photo?>(null) }
 
-    // Collect events
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
             when (event) {
-                is MainPhotoEvent.PhotoDeleted -> {
-                    snackbarHostState.showSnackbar(
-                        message = "Fotoğraf çöp kutusuna taşındı",
-                        duration = SnackbarDuration.Short
-                    )
-                }
-                is MainPhotoEvent.Error -> {
-                    snackbarHostState.showSnackbar(
-                        message = event.message,
-                        duration = SnackbarDuration.Short
-                    )
-                }
-                is MainPhotoEvent.Message -> {
-                    snackbarHostState.showSnackbar(
-                        message = event.text,
-                        duration = SnackbarDuration.Short
-                    )
-                }
+                is MainPhotoEvent.PhotoDeleted -> snackbarHostState.showSnackbar(
+                    message = "Fotoğraf çöp kutusuna taşındı",
+                    duration = SnackbarDuration.Short
+                )
+                is MainPhotoEvent.Error -> snackbarHostState.showSnackbar(
+                    message = event.message,
+                    duration = SnackbarDuration.Short
+                )
+                is MainPhotoEvent.Message -> snackbarHostState.showSnackbar(
+                    message = event.text,
+                    duration = SnackbarDuration.Short
+                )
             }
         }
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        containerColor = Color.Black
     ) { paddingValues ->
         Box(
             modifier = Modifier
@@ -83,114 +82,211 @@ fun PhotoViewerScreen(
                 .background(Color.Black)
         ) {
             when (val state = uiState) {
-                is MainPhotoUiState.Loading -> {
-                    CircularProgressIndicator(
-                        modifier = Modifier.align(Alignment.Center),
-                        color = Color.White
+                is MainPhotoUiState.Loading -> CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.Center),
+                    color = Color.White
+                )
+
+                is MainPhotoUiState.Empty -> Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "Fotoğraf bulunamadı",
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyLarge
                     )
                 }
 
-                is MainPhotoUiState.Empty -> {
-                    Column(
-                        modifier = Modifier.align(Alignment.Center),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = "Fotoğraf bulunamadı",
-                            color = Color.White,
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                    }
-                }
+                is MainPhotoUiState.Success -> PhotoSwipeStack(
+                    photos = state.photos,
+                    currentAlbum = state.currentAlbum,
+                    trashCount = state.trashCount,
+                    undoStackSize = viewModel.undoStack.collectAsStateWithLifecycle().value.size,
+                    onUndo = viewModel::undoLastAction,
+                    onDeletePhoto = viewModel::deletePhoto,
+                    onRequestMove = { photo -> showMovePicker = photo },
+                    onNavigateToTrash = onNavigateToTrash,
+                    onShowAlbumPicker = { showAlbumPicker = true }
+                )
 
-                is MainPhotoUiState.Success -> {
-                    PhotoPagerWithGestures(
-                        photos = state.photos,
-                        currentAlbum = state.currentAlbum,
-                        allAlbums = state.allAlbums,
-                        trashCount = state.trashCount,
-                        undoStackSize = viewModel.undoStack.collectAsStateWithLifecycle().value.size,
-                        onUndo = { viewModel.undoLastAction() },
-                        onDeletePhoto = { photo ->
-                            scope.launch {
-                                viewModel.deletePhoto(photo)
-                            }
-                        },
-                        onMovePhoto = { photo, targetAlbum ->
-                            viewModel.movePhotoToFolder(photo, targetAlbum?.bucketId)
-                        },
-                        onNavigateToTrash = onNavigateToTrash,
-                        onAlbumSelected = { album ->
-                            viewModel.selectAlbum(album.bucketId)
-                        },
-                        showFolderPicker = showFolderPicker,
-                        onShowFolderPicker = { showFolderPicker = it }
+                is MainPhotoUiState.Error -> Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = state.message,
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyLarge
                     )
-                }
-
-                is MainPhotoUiState.Error -> {
-                    Column(
-                        modifier = Modifier.align(Alignment.Center),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = state.message,
-                            color = Color.White,
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Button(onClick = { viewModel.loadPhotos() }) {
-                            Text(stringResource(R.string.retry))
-                        }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = { viewModel.loadPhotos() }) {
+                        Text(stringResource(R.string.retry))
                     }
                 }
             }
         }
     }
+
+    val success = uiState as? MainPhotoUiState.Success
+    if (showAlbumPicker && success != null) {
+        AlbumPickerSheet(
+            title = "Klasör Seç",
+            albums = success.allAlbums,
+            currentBucketId = success.currentAlbum?.bucketId,
+            onSelect = { album ->
+                viewModel.selectAlbum(album.bucketId)
+                showAlbumPicker = false
+            },
+            onShowAll = {
+                viewModel.selectAlbum(null)
+                showAlbumPicker = false
+            },
+            onDismiss = { showAlbumPicker = false }
+        )
+    }
+
+    val moveTarget = showMovePicker
+    if (moveTarget != null && success != null) {
+        AlbumPickerSheet(
+            title = "Taşınacak Klasörü Seç",
+            albums = success.allAlbums.filter { it.bucketId != moveTarget.bucketId },
+            currentBucketId = null,
+            onSelect = { album ->
+                viewModel.movePhotoToFolder(moveTarget, album.bucketId)
+                showMovePicker = null
+            },
+            onShowAll = null,
+            onDismiss = { showMovePicker = null }
+        )
+    }
 }
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PhotoPagerWithGestures(
+private fun PhotoSwipeStack(
     photos: List<Photo>,
     currentAlbum: Album?,
-    allAlbums: List<Album>,
     trashCount: Int,
     undoStackSize: Int,
     onUndo: () -> Unit,
     onDeletePhoto: (Photo) -> Unit,
-    onMovePhoto: (Photo, Album?) -> Unit,
+    onRequestMove: (Photo) -> Unit,
     onNavigateToTrash: () -> Unit,
-    onAlbumSelected: (Album) -> Unit,
-    showFolderPicker: Boolean,
-    onShowFolderPicker: (Boolean) -> Unit
+    onShowAlbumPicker: () -> Unit
 ) {
-    val pagerState = rememberPagerState(pageCount = { photos.size })
+    var currentIndex by remember(photos.firstOrNull()?.id) { mutableStateOf(0) }
     var showControls by remember { mutableStateOf(true) }
+
+    // Foto listesi güncellendiğinde index'in geçerli kalmasını sağla
+    LaunchedEffect(photos.size) {
+        if (currentIndex >= photos.size) currentIndex = (photos.size - 1).coerceAtLeast(0)
+    }
+
+    val current = photos.getOrNull(currentIndex)
+    val next = photos.getOrNull(currentIndex + 1)
+
+    val density = LocalDensity.current
+    val config = LocalConfiguration.current
+    val screenWidthPx = with(density) { config.screenWidthDp.dp.toPx() }
+    val screenHeightPx = with(density) { config.screenHeightDp.dp.toPx() }
+    val threshold = with(density) { 100.dp.toPx() }
+
+    val offsetX = remember { Animatable(0f) }
+    val offsetY = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Photo Pager with swipe gestures
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.fillMaxSize()
-        ) { page ->
-            SwipeablePhotoPage(
-                photo = photos[page],
-                onSwipeUp = {
-                    onDeletePhoto(photos[page])
-                },
-                onSwipeDown = {
-                    // For now, moving to current album as a test
-                    onMovePhoto(photos[page], currentAlbum)
-                },
-                onTap = {
-                    showControls = !showControls
-                }
+        // Alttaki "next" kart - drag sırasında peek olarak görünür
+        if (next != null) {
+            AsyncImage(
+                model = next.uri,
+                contentDescription = next.displayName,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val progress = (abs(offsetX.value) / screenWidthPx + abs(offsetY.value) / screenHeightPx)
+                            .coerceIn(0f, 1f)
+                        scaleX = 0.92f + 0.08f * progress
+                        scaleY = 0.92f + 0.08f * progress
+                        alpha = 0.4f + 0.6f * progress
+                    },
+                contentScale = ContentScale.Fit
             )
         }
 
-        // Top Bar
+        if (current != null) {
+            AsyncImage(
+                model = current.uri,
+                contentDescription = current.displayName,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        translationX = offsetX.value
+                        translationY = offsetY.value
+                        rotationZ = (offsetX.value / 40f).coerceIn(-12f, 12f)
+                    }
+                    .pointerInput(currentIndex, photos.size) {
+                        detectTapGestures(onTap = { showControls = !showControls })
+                    }
+                    .pointerInput(currentIndex, photos.size) {
+                        detectDragGestures(
+                            onDragEnd = {
+                                val dx = offsetX.value
+                                val dy = offsetY.value
+                                val absDx = abs(dx)
+                                val absDy = abs(dy)
+                                val photo = current
+                                scope.launch {
+                                    when {
+                                        absDy > absDx && dy < -threshold -> {
+                                            // yukarı → sil
+                                            offsetY.animateTo(-screenHeightPx * 1.2f, tween(200))
+                                            onDeletePhoto(photo)
+                                            offsetX.snapTo(0f); offsetY.snapTo(0f)
+                                        }
+                                        absDy > absDx && dy > threshold -> {
+                                            // aşağı → klasör seç
+                                            offsetX.animateTo(0f, spring())
+                                            offsetY.animateTo(0f, spring())
+                                            onRequestMove(photo)
+                                        }
+                                        absDx > absDy && dx < -threshold && currentIndex < photos.size - 1 -> {
+                                            // sol → sonraki
+                                            offsetX.animateTo(-screenWidthPx * 1.2f, tween(180))
+                                            currentIndex += 1
+                                            offsetX.snapTo(0f); offsetY.snapTo(0f)
+                                        }
+                                        absDx > absDy && dx > threshold && currentIndex > 0 -> {
+                                            // sağ → önceki
+                                            offsetX.animateTo(screenWidthPx * 1.2f, tween(180))
+                                            currentIndex -= 1
+                                            offsetX.snapTo(0f); offsetY.snapTo(0f)
+                                        }
+                                        else -> {
+                                            offsetX.animateTo(0f, spring())
+                                            offsetY.animateTo(0f, spring())
+                                        }
+                                    }
+                                }
+                            },
+                            onDrag = { change, drag ->
+                                change.consume()
+                                scope.launch {
+                                    offsetX.snapTo(offsetX.value + drag.x)
+                                    offsetY.snapTo(offsetY.value + drag.y)
+                                }
+                            }
+                        )
+                    },
+                contentScale = ContentScale.Fit
+            )
+
+            // Swipe yön göstergeleri
+            SwipeHints(offsetX = offsetX.value, offsetY = offsetY.value, threshold = threshold)
+        }
+
+        // Üst bar
         AnimatedVisibility(
             visible = showControls,
             enter = fadeIn() + slideInVertically(),
@@ -205,7 +301,7 @@ private fun PhotoPagerWithGestures(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "${pagerState.currentPage + 1}/${photos.size}",
+                            text = "${currentIndex + 1}/${photos.size}",
                             color = Color.White,
                             style = MaterialTheme.typography.titleMedium
                         )
@@ -214,7 +310,7 @@ private fun PhotoPagerWithGestures(
                 navigationIcon = {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable { onShowFolderPicker(true) }
+                        modifier = Modifier.clickable { onShowAlbumPicker() }
                     ) {
                         Icon(
                             Icons.Default.Folder,
@@ -238,11 +334,7 @@ private fun PhotoPagerWithGestures(
                 actions = {
                     BadgedBox(
                         badge = {
-                            if (trashCount > 0) {
-                                Badge {
-                                    Text(trashCount.toString())
-                                }
-                            }
+                            if (trashCount > 0) Badge { Text(trashCount.toString()) }
                         }
                     ) {
                         IconButton(onClick = onNavigateToTrash) {
@@ -260,121 +352,77 @@ private fun PhotoPagerWithGestures(
             )
         }
 
-        // Navigation Arrows
+        // Sol/sağ ok butonları
         AnimatedVisibility(
-            visible = showControls && photos.size > 1,
+            visible = showControls && currentIndex > 0,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.CenterStart)
         ) {
             IconButton(
                 onClick = {
-                    scope.launch {
-                        if (pagerState.currentPage > 0) {
-                            pagerState.animateScrollToPage(pagerState.currentPage - 1)
-                        }
-                    }
+                    if (currentIndex > 0) currentIndex -= 1
                 },
-                modifier = Modifier.padding(16.dp)
+                modifier = Modifier.padding(8.dp)
             ) {
                 Icon(
                     Icons.Default.ArrowBack,
                     contentDescription = "Önceki",
-                    tint = Color.White,
-                    modifier = Modifier.size(48.dp)
+                    tint = Color.White.copy(alpha = 0.8f),
+                    modifier = Modifier.size(40.dp)
                 )
             }
         }
-
         AnimatedVisibility(
-            visible = showControls && photos.size > 1,
+            visible = showControls && currentIndex < photos.size - 1,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.CenterEnd)
         ) {
             IconButton(
                 onClick = {
-                    scope.launch {
-                        if (pagerState.currentPage < photos.size - 1) {
-                            pagerState.animateScrollToPage(pagerState.currentPage + 1)
-                        }
-                    }
+                    if (currentIndex < photos.size - 1) currentIndex += 1
                 },
-                modifier = Modifier.padding(16.dp)
+                modifier = Modifier.padding(8.dp)
             ) {
                 Icon(
                     Icons.Default.ArrowForward,
                     contentDescription = "Sonraki",
-                    tint = Color.White,
-                    modifier = Modifier.size(48.dp)
+                    tint = Color.White.copy(alpha = 0.8f),
+                    modifier = Modifier.size(40.dp)
                 )
             }
         }
 
-        // Recent Folders Bar (Bottom)
+        // Sağ alt FAB - Klasöre taşı
         AnimatedVisibility(
-            visible = showControls,
-            enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
-            exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
+            visible = showControls && current != null,
+            enter = fadeIn(),
+            exit = fadeOut(),
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 32.dp, start = 16.dp, end = 16.dp)
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp, bottom = 32.dp)
         ) {
-            LazyRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.6f), shape = MaterialTheme.shapes.extraLarge)
-                    .padding(vertical = 12.dp, horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
-                verticalAlignment = Alignment.CenterVertically
+            FloatingActionButton(
+                onClick = { current?.let(onRequestMove) },
+                containerColor = MaterialTheme.colorScheme.primaryContainer
             ) {
-                // Şimdilik test amaçlı rastgele klasörleri (allAlbums) 'Recent' gibi gösteriyoruz
-                items(allAlbums.take(6)) { album ->
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.clickable { onAlbumSelected(album) }
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(56.dp)
-                                .background(
-                                    color = if (album.bucketId == currentAlbum?.bucketId) 
-                                        MaterialTheme.colorScheme.primaryContainer 
-                                    else 
-                                        Color.DarkGray.copy(alpha = 0.5f),
-                                    shape = MaterialTheme.shapes.large
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Default.Folder,
-                                contentDescription = album.name,
-                                tint = if (album.bucketId == currentAlbum?.bucketId) 
-                                    MaterialTheme.colorScheme.onPrimaryContainer 
-                                else 
-                                    Color.White,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = if (album.name.length > 10) album.name.take(8) + ".." else album.name,
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    }
-                }
+                Icon(
+                    Icons.Default.DriveFileMove,
+                    contentDescription = "Klasöre Taşı",
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
             }
         }
 
-        // Floating Undo Button (placed above the bottom folder bar)
+        // Sol alt Undo FAB
         AnimatedVisibility(
             visible = undoStackSize > 0 && showControls,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(bottom = 140.dp, start = 16.dp)
+                .padding(start = 16.dp, bottom = 32.dp)
         ) {
             ExtendedFloatingActionButton(
                 onClick = onUndo,
@@ -385,142 +433,136 @@ private fun PhotoPagerWithGestures(
             )
         }
     }
-
-    // Folder Picker Dialog
-    if (showFolderPicker) {
-        FolderPickerDialog(
-            albums = allAlbums,
-            currentAlbum = currentAlbum,
-            onAlbumSelected = { album ->
-                onAlbumSelected(album)
-                onShowFolderPicker(false)
-            },
-            onDismiss = { onShowFolderPicker(false) }
-        )
-    }
 }
 
 @Composable
-private fun SwipeablePhotoPage(
-    photo: Photo,
-    onSwipeUp: () -> Unit,
-    onSwipeDown: () -> Unit,
-    onTap: () -> Unit
-) {
-    var offsetY by remember { mutableStateOf(0f) }
-    val threshold = 300f // Swipe threshold in pixels
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .clickable(
-                indication = null,
-                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-            ) {
-                onTap()
-            }
-            .pointerInput(Unit) {
-                detectDragGestures(
-                    onDragEnd = {
-                        if (offsetY < -threshold) {
-                            // Swiped up - delete
-                            onSwipeUp()
-                        } else if (offsetY > threshold) {
-                            // Swiped down - move
-                            onSwipeDown()
-                        }
-                        offsetY = 0f
-                    },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        // Allow both upward and downward swipes
-                        offsetY += dragAmount.y
-                    }
-                )
-            },
-        contentAlignment = Alignment.Center
-    ) {
-        AsyncImage(
-            model = photo.uri,
-            contentDescription = photo.displayName,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    translationY = offsetY
-                    alpha = 1f - (kotlin.math.abs(offsetY) / threshold).coerceIn(0f, 0.7f)
-                },
-            contentScale = ContentScale.Fit
-        )
-
-        // Swipe indicator
+private fun BoxScope.SwipeHints(offsetX: Float, offsetY: Float, threshold: Float) {
+    val absX = abs(offsetX); val absY = abs(offsetY)
+    if (absY > absX) {
         if (offsetY < -50f) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 100.dp)
+                    .alpha((absY / threshold).coerceIn(0f, 1f))
+            ) {
+                Icon(Icons.Default.Delete, null, tint = Color.Red, modifier = Modifier.size(64.dp))
+                Text("Sil", color = Color.Red, style = MaterialTheme.typography.titleLarge)
+            }
+        } else if (offsetY > 50f) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 120.dp)
+                    .alpha((absY / threshold).coerceIn(0f, 1f))
+            ) {
+                Icon(Icons.Default.DriveFileMove, null, tint = Color.Cyan, modifier = Modifier.size(64.dp))
+                Text("Klasöre Taşı", color = Color.Cyan, style = MaterialTheme.typography.titleLarge)
+            }
+        }
+    } else {
+        if (offsetX < -50f) {
             Icon(
-                Icons.Default.Delete,
-                contentDescription = null,
+                Icons.Default.ArrowForward,
+                null,
                 tint = Color.White,
                 modifier = Modifier
-                    .size(64.dp)
-                    .alpha((kotlin.math.abs(offsetY) / threshold).coerceIn(0f, 1f))
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 32.dp)
+                    .size(72.dp)
+                    .alpha((absX / threshold).coerceIn(0f, 1f))
+            )
+        } else if (offsetX > 50f) {
+            Icon(
+                Icons.Default.ArrowBack,
+                null,
+                tint = Color.White,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 32.dp)
+                    .size(72.dp)
+                    .alpha((absX / threshold).coerceIn(0f, 1f))
             )
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FolderPickerDialog(
+private fun AlbumPickerSheet(
+    title: String,
     albums: List<Album>,
-    currentAlbum: Album?,
-    onAlbumSelected: (Album) -> Unit,
+    currentBucketId: String?,
+    onSelect: (Album) -> Unit,
+    onShowAll: (() -> Unit)?,
     onDismiss: () -> Unit
 ) {
-    AlertDialog(
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        title = { Text("Klasör Seç") },
-        text = {
-            Column {
-                albums.forEach { album ->
+        sheetState = sheetState
+    ) {
+        Column(modifier = Modifier.padding(bottom = 16.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
+            )
+            LazyColumn {
+                if (onShowAll != null) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onShowAll() }
+                                .padding(horizontal = 24.dp, vertical = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.PhotoLibrary, contentDescription = null)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text(
+                                text = "Tüm Fotoğraflar",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = if (currentBucketId == null) MaterialTheme.colorScheme.primary else Color.Unspecified,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (currentBucketId == null) {
+                                Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                        Divider()
+                    }
+                }
+                items(albums) { album ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onAlbumSelected(album) }
-                            .padding(vertical = 12.dp),
+                            .clickable { onSelect(album) }
+                            .padding(horizontal = 24.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            Icons.Default.Folder,
-                            contentDescription = null,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Icon(Icons.Default.Folder, contentDescription = null)
+                        Spacer(modifier = Modifier.width(16.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = album.name,
                                 style = MaterialTheme.typography.bodyLarge,
-                                color = if (album.bucketId == currentAlbum?.bucketId)
-                                    MaterialTheme.colorScheme.primary
-                                else
-                                    Color.Unspecified
+                                color = if (album.bucketId == currentBucketId) MaterialTheme.colorScheme.primary else Color.Unspecified
                             )
                             Text(
                                 text = "${album.photoCount} fotoğraf",
-                                style = MaterialTheme.typography.bodySmall
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        if (album.bucketId == currentAlbum?.bucketId) {
-                            Icon(
-                                Icons.Default.Check,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
+                        if (album.bucketId == currentBucketId) {
+                            Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Kapat")
-            }
         }
-    )
+    }
 }

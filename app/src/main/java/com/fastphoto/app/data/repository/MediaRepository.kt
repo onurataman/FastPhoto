@@ -179,24 +179,50 @@ class MediaRepository @Inject constructor(
     }
 
     /**
-     * Physically move photo to another album (Android 10+ Optimized)
+     * Copy a photo to a target album by inserting a new MediaStore entry and
+     * streaming bytes into it. The original photo is NOT touched here — the
+     * caller is responsible for hiding/trashing it. Returns the new Uri so the
+     * caller can confirm placement (e.g., switch the viewer to that album).
+     *
+     * Insert + write goes through the app's own permissions; no system
+     * confirmation dialog is required.
      */
-    suspend fun movePhotoToAlbum(photo: Photo, targetAlbumName: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun copyPhotoToAlbum(photo: Photo, targetAlbumName: String): Result<Uri> = withContext(Dispatchers.IO) {
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val values = android.content.ContentValues().apply {
+            val values = android.content.ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, photo.displayName)
+                put(MediaStore.Images.Media.MIME_TYPE, photo.mimeType)
+                if (photo.width > 0) put(MediaStore.Images.Media.WIDTH, photo.width)
+                if (photo.height > 0) put(MediaStore.Images.Media.HEIGHT, photo.height)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/$targetAlbumName/")
+                    put(MediaStore.Images.Media.IS_PENDING, 1)
                 }
-                
-                val updatedRows = contentResolver.update(photo.uri, values, null, null)
-                if (updatedRows > 0) {
-                    Result.success(Unit)
-                } else {
-                    Result.failure(Exception("Dosya taşınamadı. Klasör izinleri gerekebilir."))
-                }
-            } else {
-                Result.failure(Exception("Taşıma işlemi sadece Android 10 ve üzeri cihazlarda desteklenir."))
             }
+
+            val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+            } else {
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            }
+
+            val newUri = contentResolver.insert(collection, values)
+                ?: return@withContext Result.failure(Exception("MediaStore kaydı oluşturulamadı"))
+
+            contentResolver.openInputStream(photo.uri)?.use { input ->
+                contentResolver.openOutputStream(newUri)?.use { output ->
+                    input.copyTo(output)
+                } ?: return@withContext Result.failure(Exception("Hedef akış açılamadı"))
+            } ?: return@withContext Result.failure(Exception("Kaynak fotoğraf okunamadı"))
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val pendingClear = android.content.ContentValues().apply {
+                    put(MediaStore.Images.Media.IS_PENDING, 0)
+                }
+                contentResolver.update(newUri, pendingClear, null, null)
+            }
+
+            Result.success(newUri)
         } catch (e: Exception) {
             Result.failure(e)
         }

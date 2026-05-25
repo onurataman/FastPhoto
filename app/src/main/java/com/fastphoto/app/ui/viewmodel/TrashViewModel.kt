@@ -79,6 +79,18 @@ class TrashViewModel @Inject constructor(
                 }
         }
     }
+
+    fun bulkDelete(photos: List<TrashedPhoto>) {
+        viewModelScope.launch {
+            trashRepository.bulkDeleteFromSystem(photos)
+                .onSuccess {
+                    _events.emit(TrashEvent.TrashEmptied)
+                }
+                .onFailure { error ->
+                    _events.emit(TrashEvent.Error(error.message ?: "Toplu silme başarısız"))
+                }
+        }
+    }
 }
 
 sealed interface TrashUiState {

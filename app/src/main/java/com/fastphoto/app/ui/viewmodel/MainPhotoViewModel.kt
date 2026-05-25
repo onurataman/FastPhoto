@@ -12,9 +12,6 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/**
- * Main ViewModel for photo viewer
- */
 @HiltViewModel
 class MainPhotoViewModel @Inject constructor(
     private val mediaRepository: MediaRepository,
@@ -33,20 +30,20 @@ class MainPhotoViewModel @Inject constructor(
 
     private var currentBucketId: String? = null
     private var allAlbums: List<Album> = emptyList()
+    private var trashedIds: Set<Long> = emptySet()
     private var trashCount: Int = 0
+    private var rawPhotos: List<Photo> = emptyList()
 
     init {
         val bucketId: String? = savedStateHandle.get<String>("bucketId")
         currentBucketId = bucketId
         loadData()
-        observeTrashCount()
+        observeTrashState()
     }
 
     fun loadData() {
         viewModelScope.launch {
             _uiState.value = MainPhotoUiState.Loading
-
-            // Load albums
             mediaRepository.loadAlbums()
                 .onSuccess { albums ->
                     allAlbums = albums
@@ -67,20 +64,26 @@ class MainPhotoViewModel @Inject constructor(
             }
 
             result.onSuccess { photos ->
-                val currentAlbum = allAlbums.find { it.bucketId == currentBucketId }
-                _uiState.value = if (photos.isEmpty()) {
-                    MainPhotoUiState.Empty
-                } else {
-                    MainPhotoUiState.Success(
-                        photos = photos,
-                        currentAlbum = currentAlbum,
-                        allAlbums = allAlbums,
-                        trashCount = trashCount
-                    )
-                }
+                rawPhotos = photos
+                publishSuccessState()
             }.onFailure { error ->
                 _uiState.value = MainPhotoUiState.Error(error.message ?: "Failed to load photos")
             }
+        }
+    }
+
+    private fun publishSuccessState() {
+        val visible = rawPhotos.filter { it.id !in trashedIds }
+        val currentAlbum = allAlbums.find { it.bucketId == currentBucketId }
+        _uiState.value = if (visible.isEmpty()) {
+            MainPhotoUiState.Empty
+        } else {
+            MainPhotoUiState.Success(
+                photos = visible,
+                currentAlbum = currentAlbum,
+                allAlbums = allAlbums,
+                trashCount = trashCount
+            )
         }
     }
 
@@ -97,9 +100,8 @@ class MainPhotoViewModel @Inject constructor(
                     currentStack.add(photo)
                     if (currentStack.size > 10) currentStack.removeAt(0)
                     _undoStack.value = currentStack
-                    
                     _events.emit(MainPhotoEvent.PhotoDeleted)
-                    loadPhotos() // Reload to update the list
+                    // Trash flow collect tetiklenince publishSuccessState çağrılır.
                 }
                 .onFailure { error ->
                     _events.emit(MainPhotoEvent.Error(error.message ?: "Failed to delete photo"))
@@ -126,7 +128,6 @@ class MainPhotoViewModel @Inject constructor(
                 .onSuccess {
                     _events.emit(MainPhotoEvent.Message("${photoToRestore.displayName} geri alındı!"))
                     _undoStack.value = stack.dropLast(1)
-                    loadPhotos()
                 }
                 .onFailure { error ->
                     _events.emit(MainPhotoEvent.Error(error.message ?: "Geri alma başarısız"))
@@ -141,16 +142,26 @@ class MainPhotoViewModel @Inject constructor(
                 _events.emit(MainPhotoEvent.Error("Hedef klasör bulunamadı!"))
                 return@launch
             }
+            if (targetAlbum.bucketId == photo.bucketId) {
+                _events.emit(MainPhotoEvent.Error("Fotoğraf zaten ${targetAlbum.name} klasöründe."))
+                return@launch
+            }
 
-            mediaRepository.movePhotoToAlbum(photo, targetAlbum.name)
+            mediaRepository.copyPhotoToAlbum(photo, targetAlbum.name)
                 .onSuccess {
-                    val currentStack = _undoStack.value.toMutableList()
-                    currentStack.add(photo)
-                    if (currentStack.size > 10) currentStack.removeAt(0)
-                    _undoStack.value = currentStack
-                    
-                    _events.emit(MainPhotoEvent.Message("${photo.displayName} 📁 ${targetAlbum.name} klasörüne taşındı!"))
-                    loadPhotos() // Ekranı güncelle
+                    // Original'i app içinden gizle (trash'e at). Sistemden silme
+                    // toplu olarak çöp kutusundan tetiklenir.
+                    trashRepository.moveToTrash(photo)
+                        .onSuccess {
+                            val currentStack = _undoStack.value.toMutableList()
+                            currentStack.add(photo)
+                            if (currentStack.size > 10) currentStack.removeAt(0)
+                            _undoStack.value = currentStack
+                            _events.emit(MainPhotoEvent.Message("📁 ${targetAlbum.name} klasörüne taşındı"))
+                        }
+                        .onFailure { error ->
+                            _events.emit(MainPhotoEvent.Error("Kopyalandı ama orijinal gizlenemedi: ${error.message}"))
+                        }
                 }
                 .onFailure { error ->
                     _events.emit(MainPhotoEvent.Error(error.message ?: "Taşıma başarısız oldu."))
@@ -158,14 +169,13 @@ class MainPhotoViewModel @Inject constructor(
         }
     }
 
-    private fun observeTrashCount() {
+    private fun observeTrashState() {
         viewModelScope.launch {
             trashRepository.getTrashedPhotos().collect { trashedPhotos ->
                 trashCount = trashedPhotos.size
-                // Update UI state with new trash count
-                val currentState = _uiState.value
-                if (currentState is MainPhotoUiState.Success) {
-                    _uiState.value = currentState.copy(trashCount = trashCount)
+                trashedIds = trashedPhotos.map { it.originalPhotoId }.toSet()
+                if (_uiState.value is MainPhotoUiState.Success || _uiState.value is MainPhotoUiState.Empty) {
+                    publishSuccessState()
                 }
             }
         }

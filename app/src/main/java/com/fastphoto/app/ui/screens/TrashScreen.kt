@@ -119,6 +119,7 @@ fun TrashScreen(
                         photos = state.photos,
                         onRestorePhoto = viewModel::restorePhoto,
                         onDeletePermanently = viewModel::deletePermanently,
+                        onBulkDelete = { viewModel.bulkDelete(state.photos) },
                         onNavigateBack = onNavigateBack
                     )
                 }
@@ -133,8 +134,10 @@ private fun TrashPagerWithGestures(
     photos: List<TrashedPhoto>,
     onRestorePhoto: (TrashedPhoto) -> Unit,
     onDeletePermanently: (TrashedPhoto) -> Unit,
+    onBulkDelete: () -> Unit,
     onNavigateBack: () -> Unit
 ) {
+    var showBulkConfirm by remember { mutableStateOf(false) }
     val pagerState = rememberPagerState(pageCount = { photos.size })
     var showControls by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
@@ -190,12 +193,21 @@ private fun TrashPagerWithGestures(
                     }
                 },
                 actions = {
-                    Text(
-                        text = "Çöp Kutusu",
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(end = 16.dp)
-                    )
+                    TextButton(
+                        onClick = { showBulkConfirm = true },
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.DeleteSweep,
+                            contentDescription = null,
+                            tint = Color.Red
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Toplu Sil (${photos.size})",
+                            color = Color.Red
+                        )
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Black.copy(alpha = 0.7f)
@@ -252,6 +264,29 @@ private fun TrashPagerWithGestures(
                     modifier = Modifier.size(48.dp)
                 )
             }
+        }
+
+        if (showBulkConfirm) {
+            AlertDialog(
+                onDismissRequest = { showBulkConfirm = false },
+                icon = { Icon(Icons.Default.Warning, null, tint = Color.Red) },
+                title = { Text("Toplu Sil") },
+                text = {
+                    Text(
+                        "${photos.size} fotoğraf telefondan kalıcı olarak silinecek. " +
+                        "Android tek seferlik bir onay dialog'u gösterecek. Devam edilsin mi?"
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showBulkConfirm = false
+                        onBulkDelete()
+                    }) { Text("Evet, Sil", color = Color.Red) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showBulkConfirm = false }) { Text("Vazgeç") }
+                }
+            )
         }
 
         // Gesture hint overlay

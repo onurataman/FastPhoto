@@ -26,7 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.fastphoto.app.data.repository.TrashRepository
+import com.fastphoto.app.data.repository.PendingIntentBus
 import com.fastphoto.app.ui.navigation.NavGraph
 import com.fastphoto.app.ui.navigation.Screen
 import com.fastphoto.app.ui.theme.FastPhotoTheme
@@ -39,13 +39,13 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
-    @Inject lateinit var trashRepository: TrashRepository
+    @Inject lateinit var pendingIntentBus: PendingIntentBus
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             FastPhotoTheme {
-                FastPhotoApp(trashRepository = trashRepository)
+                FastPhotoApp(pendingIntentBus = pendingIntentBus)
             }
         }
     }
@@ -53,16 +53,16 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
-fun FastPhotoApp(trashRepository: TrashRepository) {
+fun FastPhotoApp(pendingIntentBus: PendingIntentBus) {
     val navController = rememberNavController()
 
-    val deleteLauncher = rememberLauncherForActivityResult(
+    val systemActionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartIntentSenderForResult()
-    ) { /* result ignored — system handled the deletion */ }
+    ) { /* result ignored — system handled the action */ }
 
-    LaunchedEffect(trashRepository) {
-        trashRepository.pendingDeletion.collect { intentSender ->
-            deleteLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
+    LaunchedEffect(pendingIntentBus) {
+        pendingIntentBus.pending.collect { intentSender ->
+            systemActionLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
         }
     }
 
