@@ -180,6 +180,38 @@ class MainPhotoViewModel @Inject constructor(
         }
     }
 
+    fun moveToNewFolderByName(photo: Photo, folderName: String) {
+        viewModelScope.launch {
+            val trimmed = folderName.trim().trim('/')
+            if (trimmed.isEmpty()) {
+                _events.emit(MainPhotoEvent.Error("Folder name can't be empty"))
+                return@launch
+            }
+            val targetPath = "DCIM/$trimmed/"
+            mediaRepository.copyPhotoToAlbum(photo, targetPath)
+                .onSuccess {
+                    trashRepository.moveToTrash(photo)
+                        .onSuccess {
+                            val currentStack = _undoStack.value.toMutableList()
+                            currentStack.add(photo)
+                            if (currentStack.size > 10) currentStack.removeAt(0)
+                            _undoStack.value = currentStack
+                            _events.emit(MainPhotoEvent.Message("📁 Moved to $trimmed"))
+                            mediaRepository.loadAlbums().onSuccess { fresh ->
+                                allAlbums = fresh
+                                publishSuccessState()
+                            }
+                        }
+                        .onFailure { error ->
+                            _events.emit(MainPhotoEvent.Error("Copied but could not hide original: ${error.message}"))
+                        }
+                }
+                .onFailure { error ->
+                    _events.emit(MainPhotoEvent.Error(error.message ?: "Move failed."))
+                }
+        }
+    }
+
     fun commitPending() {
         viewModelScope.launch {
             val trashed = trashRepository.getTrashedPhotos().first()

@@ -199,6 +199,9 @@ class MediaRepository @Inject constructor(
                 put(MediaStore.Images.Media.MIME_TYPE, photo.mimeType)
                 if (photo.width > 0) put(MediaStore.Images.Media.WIDTH, photo.width)
                 if (photo.height > 0) put(MediaStore.Images.Media.HEIGHT, photo.height)
+                photo.dateTaken?.let { put(MediaStore.Images.Media.DATE_TAKEN, it) }
+                put(MediaStore.Images.Media.DATE_ADDED, photo.dateAdded)
+                put(MediaStore.Images.Media.DATE_MODIFIED, photo.dateAdded)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     put(MediaStore.Images.Media.RELATIVE_PATH, normalizedPath)
                     put(MediaStore.Images.Media.IS_PENDING, 1)

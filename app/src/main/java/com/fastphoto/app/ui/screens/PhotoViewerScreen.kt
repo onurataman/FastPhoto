@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -20,6 +21,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -28,7 +30,9 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
@@ -140,6 +144,7 @@ fun PhotoViewerScreen(
             title = "Select Folder",
             albums = success.allAlbums,
             currentBucketId = success.currentAlbum?.bucketId,
+            currentParentHint = success.currentAlbum?.relativePath,
             onSelect = { album ->
                 viewModel.selectAlbum(album.bucketId)
                 showAlbumPicker = false
@@ -148,6 +153,7 @@ fun PhotoViewerScreen(
                 viewModel.selectAlbum(null)
                 showAlbumPicker = false
             },
+            onCreateNewFolder = null,
             onDismiss = { showAlbumPicker = false }
         )
     }
@@ -158,11 +164,16 @@ fun PhotoViewerScreen(
             title = "Select Target Folder",
             albums = success.allAlbums.filter { it.bucketId != moveTarget.bucketId },
             currentBucketId = null,
+            currentParentHint = moveTarget.relativePath,
             onSelect = { album ->
                 viewModel.movePhotoToFolder(moveTarget, album.bucketId)
                 showMovePicker = null
             },
             onShowAll = null,
+            onCreateNewFolder = { name ->
+                viewModel.moveToNewFolderByName(moveTarget, name)
+                showMovePicker = null
+            },
             onDismiss = { showMovePicker = null }
         )
     }
@@ -230,7 +241,7 @@ private fun PhotoSwipeStack(
     val offsetY = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         if (next != null) {
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
@@ -366,33 +377,56 @@ private fun PhotoSwipeStack(
                 },
                 actions = {
                     val pending = trashCount > 0
-                    val commitTint = if (pending) Color(0xFFFFC107) else Color(0xFF4CAF50)
                     val commitDesc = if (pending) "Pending: $trashCount" else "All synced"
-                    BadgedBox(
-                        badge = {
-                            if (pending) Badge(containerColor = Color(0xFFFFC107)) {
-                                Text(trashCount.toString(), color = Color.Black)
-                            }
-                        }
+                    val pendingBg = if (pending) Color(0xFFFFC107) else Color(0xFF4CAF50)
+                    Box(
+                        modifier = Modifier
+                            .padding(end = 4.dp)
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(pendingBg)
+                            .clickable(enabled = pending) { onRequestCommit() },
+                        contentAlignment = Alignment.Center
                     ) {
-                        IconButton(onClick = { if (pending) onRequestCommit() }) {
+                        if (pending) {
+                            Text(
+                                text = trashCount.toString(),
+                                color = Color.Black,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                        } else {
                             Icon(
-                                imageVector = if (pending) Icons.Default.HourglassTop else Icons.Default.CheckCircle,
+                                Icons.Default.CheckCircle,
                                 contentDescription = commitDesc,
-                                tint = commitTint
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
-                    BadgedBox(
-                        badge = {
-                            if (trashCount > 0) Badge { Text(trashCount.toString()) }
-                        }
+                    val trashBg = if (pending) Color(0xFFE53935) else Color(0x66FFFFFF)
+                    Box(
+                        modifier = Modifier
+                            .padding(end = 8.dp)
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(trashBg)
+                            .clickable { onNavigateToTrash() },
+                        contentAlignment = Alignment.Center
                     ) {
-                        IconButton(onClick = onNavigateToTrash) {
+                        if (pending) {
+                            Text(
+                                text = trashCount.toString(),
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                        } else {
                             Icon(
                                 Icons.Default.Delete,
                                 contentDescription = "Trash",
-                                tint = Color.White
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
@@ -569,11 +603,28 @@ private fun AlbumPickerSheet(
     title: String,
     albums: List<Album>,
     currentBucketId: String?,
+    currentParentHint: String?,
     onSelect: (Album) -> Unit,
     onShowAll: (() -> Unit)?,
+    onCreateNewFolder: ((String) -> Unit)?,
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showCreateDialog by remember { mutableStateOf(false) }
+
+    val grouped = remember(albums) { groupAlbumsByParent(albums) }
+    val defaultParent = remember(currentParentHint, grouped) {
+        val hintParent = currentParentHint?.trim('/')?.substringBefore('/', "")?.ifBlank { null }
+        when {
+            hintParent != null && hintParent in grouped.keys -> hintParent
+            "DCIM" in grouped.keys -> "DCIM"
+            else -> grouped.keys.firstOrNull()
+        }
+    }
+    var expandedParents by remember(grouped) {
+        mutableStateOf(setOfNotNull(defaultParent))
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState
@@ -585,6 +636,38 @@ private fun AlbumPickerSheet(
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
             )
             LazyColumn {
+                if (onCreateNewFolder != null) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showCreateDialog = true }
+                                .padding(horizontal = 24.dp, vertical = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.CreateNewFolder,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text(
+                                text = "New Folder…",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "in DCIM/",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Divider()
+                    }
+                }
+
                 if (onShowAll != null) {
                     item {
                         Row(
@@ -609,34 +692,135 @@ private fun AlbumPickerSheet(
                         Divider()
                     }
                 }
-                items(albums) { album ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onSelect(album) }
-                            .padding(horizontal = 24.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.Folder, contentDescription = null)
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = album.name,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = if (album.bucketId == currentBucketId) MaterialTheme.colorScheme.primary else Color.Unspecified
+
+                grouped.forEach { (parent, parentAlbums) ->
+                    val expanded = parent in expandedParents
+                    val totalCount = parentAlbums.sumOf { it.photoCount }
+                    item(key = "header_$parent") {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    expandedParents = if (expanded) expandedParents - parent
+                                                      else expandedParents + parent
+                                }
+                                .padding(horizontal = 24.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (expanded) Icons.Default.FolderOpen else Icons.Default.Folder,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
                             )
-                            Text(
-                                text = "${album.photoCount} photos",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = parent,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "${parentAlbums.size} folder(s) · $totalCount photos",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Icon(
+                                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        if (album.bucketId == currentBucketId) {
-                            Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary)
+                    }
+                    if (expanded) {
+                        items(parentAlbums, key = { "album_${it.bucketId}" }) { album ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onSelect(album) }
+                                    .padding(start = 56.dp, end = 24.dp, top = 12.dp, bottom = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Folder,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = album.name,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = if (album.bucketId == currentBucketId) MaterialTheme.colorScheme.primary else Color.Unspecified
+                                    )
+                                    Text(
+                                        text = "${album.photoCount} photos",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                if (album.bucketId == currentBucketId) {
+                                    Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
                         }
                     }
                 }
             }
         }
     }
+
+    if (showCreateDialog && onCreateNewFolder != null) {
+        var folderName by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showCreateDialog = false },
+            icon = { Icon(Icons.Default.CreateNewFolder, null, tint = MaterialTheme.colorScheme.primary) },
+            title = { Text("New Folder in DCIM") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = folderName,
+                        onValueChange = { folderName = it },
+                        label = { Text("Folder name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "Path: DCIM/${folderName.trim().ifBlank { "<name>" }}/",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = folderName.trim().isNotEmpty(),
+                    onClick = {
+                        val name = folderName.trim()
+                        showCreateDialog = false
+                        onCreateNewFolder(name)
+                    }
+                ) { Text("Create & Move") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+}
+
+private fun groupAlbumsByParent(albums: List<Album>): Map<String, List<Album>> {
+    val groups = albums.groupBy { album ->
+        val trimmed = album.relativePath.trim('/')
+        if (trimmed.isEmpty()) "Other" else trimmed.substringBefore('/', "Other").ifBlank { "Other" }
+    }
+    return groups.entries
+        .sortedWith(
+            compareByDescending<Map.Entry<String, List<Album>>> { (parent, _) -> parent == "DCIM" }
+                .thenByDescending { (parent, _) -> parent == "Pictures" }
+                .thenByDescending { (_, list) -> list.sumOf { it.photoCount } }
+        )
+        .associate { (parent, list) -> parent to list.sortedByDescending { it.photoCount } }
 }
