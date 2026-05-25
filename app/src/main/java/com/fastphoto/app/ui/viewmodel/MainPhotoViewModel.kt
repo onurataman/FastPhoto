@@ -110,21 +110,27 @@ class MainPhotoViewModel @Inject constructor(
     fun undoLastAction() {
         viewModelScope.launch {
             val stack = _undoStack.value
-            if (stack.isNotEmpty()) {
-                val photoToRestore = stack.last()
-                
-                // Arka planda veritabanından çöp kutusundaki halini bul ve orijinal yerine iade et
-                val trashedList = trashRepository.getTrashedPhotos().firstOrNull() ?: emptyList()
-                val trashedPhoto = trashedList.find { it.originalPhotoId == photoToRestore.id }
-                
-                if (trashedPhoto != null) {
-                    trashRepository.restorePhoto(trashedPhoto)
-                }
+            if (stack.isEmpty()) return@launch
 
-                _events.emit(MainPhotoEvent.Message("${photoToRestore.displayName} Geri Alındı!"))
+            val photoToRestore = stack.last()
+            val trashedList = trashRepository.getTrashedPhotos().first()
+            val trashedPhoto = trashedList.find { it.originalPhotoId == photoToRestore.id }
+
+            if (trashedPhoto == null) {
+                _events.emit(MainPhotoEvent.Error("${photoToRestore.displayName} geri alınamadı (çöp kutusunda bulunamadı)"))
                 _undoStack.value = stack.dropLast(1)
-                loadPhotos()
+                return@launch
             }
+
+            trashRepository.restorePhoto(trashedPhoto)
+                .onSuccess {
+                    _events.emit(MainPhotoEvent.Message("${photoToRestore.displayName} geri alındı!"))
+                    _undoStack.value = stack.dropLast(1)
+                    loadPhotos()
+                }
+                .onFailure { error ->
+                    _events.emit(MainPhotoEvent.Error(error.message ?: "Geri alma başarısız"))
+                }
         }
     }
 

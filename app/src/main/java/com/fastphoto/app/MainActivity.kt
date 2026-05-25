@@ -4,34 +4,48 @@ import android.Manifest
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Photo
-import androidx.compose.material3.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.navigation.NavDestination.Companion.hierarchy
-import androidx.navigation.NavGraph.Companion.findStartDestination
-import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.navigation.compose.rememberNavController
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import com.fastphoto.app.data.repository.TrashRepository
 import com.fastphoto.app.ui.navigation.NavGraph
 import com.fastphoto.app.ui.navigation.Screen
 import com.fastphoto.app.ui.theme.FastPhotoTheme
+import androidx.navigation.compose.rememberNavController
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject lateinit var trashRepository: TrashRepository
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             FastPhotoTheme {
-                FastPhotoApp()
+                FastPhotoApp(trashRepository = trashRepository)
             }
         }
     }
@@ -39,10 +53,19 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
-fun FastPhotoApp() {
+fun FastPhotoApp(trashRepository: TrashRepository) {
     val navController = rememberNavController()
 
-    // Request permissions based on Android version
+    val deleteLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { /* result ignored — system handled the deletion */ }
+
+    LaunchedEffect(trashRepository) {
+        trashRepository.pendingDeletion.collect { intentSender ->
+            deleteLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
+        }
+    }
+
     val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         listOf(Manifest.permission.READ_MEDIA_IMAGES)
     } else {
@@ -57,7 +80,6 @@ fun FastPhotoApp() {
             startDestination = Screen.PhotoViewer.route
         )
     } else {
-        // Permission request screen
         PermissionRequestScreen(
             onRequestPermission = { permissionsState.launchMultiplePermissionRequest() }
         )
@@ -72,28 +94,24 @@ fun PermissionRequestScreen(
         Surface(
             modifier = Modifier.padding(paddingValues)
         ) {
-            androidx.compose.foundation.layout.Column(
+            Column(
                 modifier = Modifier
-                    .padding(androidx.compose.ui.unit.dp(16))
+                    .padding(16.dp)
                     .fillMaxSize(),
-                verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
-                horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
                     text = stringResource(R.string.permission_required),
                     style = MaterialTheme.typography.headlineMedium
                 )
-                androidx.compose.foundation.layout.Spacer(
-                    modifier = Modifier.height(androidx.compose.ui.unit.dp(16))
-                )
+                Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     text = stringResource(R.string.permission_photos_rationale),
                     style = MaterialTheme.typography.bodyLarge,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    textAlign = TextAlign.Center
                 )
-                androidx.compose.foundation.layout.Spacer(
-                    modifier = Modifier.height(androidx.compose.ui.unit.dp(24))
-                )
+                Spacer(modifier = Modifier.height(24.dp))
                 Button(onClick = onRequestPermission) {
                     Text(stringResource(R.string.grant_permission))
                 }
@@ -101,11 +119,3 @@ fun PermissionRequestScreen(
         }
     }
 }
-
-// Extension to make Column, Row, etc. available
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.ui.Alignment
-import androidx.compose.foundation.layout.Arrangement

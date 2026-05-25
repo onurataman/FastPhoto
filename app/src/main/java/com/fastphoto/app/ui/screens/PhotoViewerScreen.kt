@@ -364,22 +364,25 @@ private fun PhotoPagerWithGestures(
                         )
                     }
                 }
-                // Floating Undo Button
-                AnimatedVisibility(
-                    visible = undoStackSize > 0 && showControls,
-                    enter = fadeIn(),
-                    exit = fadeOut(),
-                    modifier = Modifier.padding(bottom = 120.dp, start = 16.dp)
-                ) {
-                    ExtendedFloatingActionButton(
-                        onClick = onUndo,
-                        icon = { Icon(Icons.Default.Undo, contentDescription = "Geri Al") },
-                        text = { Text("Geri Al ($undoStackSize)") },
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                }
             }
+        }
+
+        // Floating Undo Button (placed above the bottom folder bar)
+        AnimatedVisibility(
+            visible = undoStackSize > 0 && showControls,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(bottom = 140.dp, start = 16.dp)
+        ) {
+            ExtendedFloatingActionButton(
+                onClick = onUndo,
+                icon = { Icon(Icons.Default.Undo, contentDescription = "Geri Al") },
+                text = { Text("Geri Al ($undoStackSize)") },
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+            )
         }
     }
 
