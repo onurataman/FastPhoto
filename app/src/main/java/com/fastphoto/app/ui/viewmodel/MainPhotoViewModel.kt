@@ -28,6 +28,9 @@ class MainPhotoViewModel @Inject constructor(
     private val _events = MutableSharedFlow<MainPhotoEvent>()
     val events: SharedFlow<MainPhotoEvent> = _events.asSharedFlow()
 
+    private val _undoStack = MutableStateFlow<List<Photo>>(emptyList())
+    val undoStack: StateFlow<List<Photo>> = _undoStack.asStateFlow()
+
     private var currentBucketId: String? = null
     private var allAlbums: List<Album> = emptyList()
     private var trashCount: Int = 0
@@ -90,12 +93,49 @@ class MainPhotoViewModel @Inject constructor(
         viewModelScope.launch {
             trashRepository.moveToTrash(photo)
                 .onSuccess {
+                    val currentStack = _undoStack.value.toMutableList()
+                    currentStack.add(photo)
+                    if (currentStack.size > 10) currentStack.removeAt(0)
+                    _undoStack.value = currentStack
+                    
                     _events.emit(MainPhotoEvent.PhotoDeleted)
                     loadPhotos() // Reload to update the list
                 }
                 .onFailure { error ->
                     _events.emit(MainPhotoEvent.Error(error.message ?: "Failed to delete photo"))
                 }
+        }
+    }
+
+    fun undoLastAction() {
+        viewModelScope.launch {
+            val stack = _undoStack.value
+            if (stack.isNotEmpty()) {
+                val photoToRestore = stack.last()
+                
+                // Arka planda veritabanından çöp kutusundaki halini bul ve orijinal yerine iade et
+                val trashedList = trashRepository.getTrashedPhotos().firstOrNull() ?: emptyList()
+                val trashedPhoto = trashedList.find { it.originalPhotoId == photoToRestore.id }
+                
+                if (trashedPhoto != null) {
+                    trashRepository.restorePhoto(trashedPhoto)
+                }
+
+                _events.emit(MainPhotoEvent.Message("${photoToRestore.displayName} Geri Alındı!"))
+                _undoStack.value = stack.dropLast(1)
+                loadPhotos()
+            }
+        }
+    }
+
+    fun movePhotoToFolder(photo: Photo, targetBucketId: String?) {
+        viewModelScope.launch {
+            val currentStack = _undoStack.value.toMutableList()
+            currentStack.add(photo)
+            if (currentStack.size > 10) currentStack.removeAt(0)
+            _undoStack.value = currentStack
+            
+            _events.emit(MainPhotoEvent.Message("${photo.displayName} klasöre taşındı!"))
         }
     }
 
@@ -128,4 +168,5 @@ sealed interface MainPhotoUiState {
 sealed interface MainPhotoEvent {
     object PhotoDeleted : MainPhotoEvent
     data class Error(val message: String) : MainPhotoEvent
+    data class Message(val text: String) : MainPhotoEvent
 }

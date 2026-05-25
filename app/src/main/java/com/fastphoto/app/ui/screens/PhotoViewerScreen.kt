@@ -9,6 +9,8 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -61,6 +63,12 @@ fun PhotoViewerScreen(
                         duration = SnackbarDuration.Short
                     )
                 }
+                is MainPhotoEvent.Message -> {
+                    snackbarHostState.showSnackbar(
+                        message = event.text,
+                        duration = SnackbarDuration.Short
+                    )
+                }
             }
         }
     }
@@ -101,10 +109,15 @@ fun PhotoViewerScreen(
                         currentAlbum = state.currentAlbum,
                         allAlbums = state.allAlbums,
                         trashCount = state.trashCount,
+                        undoStackSize = viewModel.undoStack.collectAsStateWithLifecycle().value.size,
+                        onUndo = { viewModel.undoLastAction() },
                         onDeletePhoto = { photo ->
                             scope.launch {
                                 viewModel.deletePhoto(photo)
                             }
+                        },
+                        onMovePhoto = { photo, targetAlbum ->
+                            viewModel.movePhotoToFolder(photo, targetAlbum?.bucketId)
                         },
                         onNavigateToTrash = onNavigateToTrash,
                         onAlbumSelected = { album ->
@@ -143,7 +156,10 @@ private fun PhotoPagerWithGestures(
     currentAlbum: Album?,
     allAlbums: List<Album>,
     trashCount: Int,
+    undoStackSize: Int,
+    onUndo: () -> Unit,
     onDeletePhoto: (Photo) -> Unit,
+    onMovePhoto: (Photo, Album?) -> Unit,
     onNavigateToTrash: () -> Unit,
     onAlbumSelected: (Album) -> Unit,
     showFolderPicker: Boolean,
@@ -163,6 +179,10 @@ private fun PhotoPagerWithGestures(
                 photo = photos[page],
                 onSwipeUp = {
                     onDeletePhoto(photos[page])
+                },
+                onSwipeDown = {
+                    // For now, moving to current album as a test
+                    onMovePhoto(photos[page], currentAlbum)
                 },
                 onTap = {
                     showControls = !showControls
@@ -290,6 +310,77 @@ private fun PhotoPagerWithGestures(
                 )
             }
         }
+
+        // Recent Folders Bar (Bottom)
+        AnimatedVisibility(
+            visible = showControls,
+            enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 32.dp, start = 16.dp, end = 16.dp)
+        ) {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.6f), shape = MaterialTheme.shapes.extraLarge)
+                    .padding(vertical = 12.dp, horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Şimdilik test amaçlı rastgele klasörleri (allAlbums) 'Recent' gibi gösteriyoruz
+                items(allAlbums.take(6)) { album ->
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.clickable { onAlbumSelected(album) }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .background(
+                                    color = if (album.bucketId == currentAlbum?.bucketId) 
+                                        MaterialTheme.colorScheme.primaryContainer 
+                                    else 
+                                        Color.DarkGray.copy(alpha = 0.5f),
+                                    shape = MaterialTheme.shapes.large
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.Folder,
+                                contentDescription = album.name,
+                                tint = if (album.bucketId == currentAlbum?.bucketId) 
+                                    MaterialTheme.colorScheme.onPrimaryContainer 
+                                else 
+                                    Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = if (album.name.length > 10) album.name.take(8) + ".." else album.name,
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
+                // Floating Undo Button
+                AnimatedVisibility(
+                    visible = undoStackSize > 0 && showControls,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                    modifier = Modifier.padding(bottom = 120.dp, start = 16.dp)
+                ) {
+                    ExtendedFloatingActionButton(
+                        onClick = onUndo,
+                        icon = { Icon(Icons.Default.Undo, contentDescription = "Geri Al") },
+                        text = { Text("Geri Al ($undoStackSize)") },
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
+        }
     }
 
     // Folder Picker Dialog
@@ -310,6 +401,7 @@ private fun PhotoPagerWithGestures(
 private fun SwipeablePhotoPage(
     photo: Photo,
     onSwipeUp: () -> Unit,
+    onSwipeDown: () -> Unit,
     onTap: () -> Unit
 ) {
     var offsetY by remember { mutableStateOf(0f) }
@@ -330,15 +422,16 @@ private fun SwipeablePhotoPage(
                         if (offsetY < -threshold) {
                             // Swiped up - delete
                             onSwipeUp()
+                        } else if (offsetY > threshold) {
+                            // Swiped down - move
+                            onSwipeDown()
                         }
                         offsetY = 0f
                     },
                     onDrag = { change, dragAmount ->
                         change.consume()
-                        // Only allow upward swipes
-                        if (dragAmount.y < 0) {
-                            offsetY += dragAmount.y
-                        }
+                        // Allow both upward and downward swipes
+                        offsetY += dragAmount.y
                     }
                 )
             },
