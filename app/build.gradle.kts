@@ -25,16 +25,23 @@ android {
     signingConfigs {
         create("release") {
             val envKeystoreFile = System.getenv("KEYSTORE_FILE")
-            val keystoreFile = if (!envKeystoreFile.isNullOrBlank()) {
-                file(envKeystoreFile)
+            var keystoreFile = if (!envKeystoreFile.isNullOrBlank()) {
+                val f = file(envKeystoreFile)
+                if (f.exists()) f else rootProject.file(envKeystoreFile)
             } else {
                 rootProject.file("keystore/fastphoto-release.jks")
             }
+            if (!keystoreFile.exists()) {
+                keystoreFile = rootProject.file("keystore/fastphoto-release.jks")
+            }
+            
             if (keystoreFile.exists()) {
                 storeFile = keystoreFile
                 storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
                 keyAlias = System.getenv("KEY_ALIAS") ?: "fastphoto"
                 keyPassword = System.getenv("KEY_PASSWORD") ?: ""
+            } else {
+                println("WARNING: Release keystore file not found at ${keystoreFile.absolutePath}")
             }
         }
     }
