@@ -27,10 +27,20 @@ jobs:
       run: chmod +x gradlew
 
     - name: Decode Release Keystore
+      env:
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
       run: |
         mkdir -p keystore
         echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > keystore/fastphoto-release.jks
+        echo "=== KEYSTORE DIAGNOSTICS ==="
         ls -lh keystore/
+        echo "Bytes: $(wc -c < keystore/fastphoto-release.jks) (expected ~2700)"
+        echo "SHA256: $(sha256sum keystore/fastphoto-release.jks | cut -d' ' -f1)"
+        echo "Password length: ${#KEYSTORE_PASSWORD} chars (expected 32)"
+        echo "Alias: '$KEY_ALIAS' (expected 'fastphoto')"
+        # Validate keystore — fails fast with clear msg if corrupt or wrong password
+        keytool -list -keystore keystore/fastphoto-release.jks -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS"
 
     - name: Build Release APK
       env:
@@ -38,7 +48,7 @@ jobs:
         KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-      run: ./gradlew assembleRelease
+      run: ./gradlew assembleRelease --stacktrace
 
     - name: Rename APK for Production Look
       run: mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/FastPhoto.apk
