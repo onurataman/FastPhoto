@@ -143,7 +143,7 @@ fun PhotoViewerScreen(
     val success = uiState as? MainPhotoUiState.Success
     if (showAlbumPicker && success != null) {
         AlbumPickerSheet(
-            title = "Select Folder",
+            title = "Select Album",
             albums = success.allAlbums,
             currentBucketId = success.currentAlbum?.bucketId,
             currentParentHint = success.currentAlbum?.relativePath,
@@ -163,7 +163,7 @@ fun PhotoViewerScreen(
     val moveTarget = showMovePicker
     if (moveTarget != null && success != null) {
         AlbumPickerSheet(
-            title = "Select Target Folder",
+            title = "Move to Album",
             albums = success.allAlbums.filter { it.bucketId != moveTarget.bucketId },
             currentBucketId = null,
             currentParentHint = moveTarget.relativePath,
@@ -370,7 +370,7 @@ private fun PhotoSwipeStack(
                     ) {
                         Icon(
                             Icons.Default.Folder,
-                            contentDescription = "Folder",
+                            contentDescription = "Album",
                             tint = Color.White,
                             modifier = Modifier.padding(start = 16.dp)
                         )
@@ -504,7 +504,7 @@ private fun PhotoSwipeStack(
             ) {
                 Icon(
                     Icons.Default.DriveFileMove,
-                    contentDescription = "Move to Folder",
+                    contentDescription = "Move to Album",
                     tint = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             }
@@ -544,13 +544,13 @@ private fun PhotoSwipeStack(
                 .align(Alignment.BottomStart)
                 .padding(start = 16.dp, bottom = 32.dp)
         ) {
-            ExtendedFloatingActionButton(
+            SmallFloatingActionButton(
                 onClick = onUndo,
-                icon = { Icon(Icons.Default.Undo, contentDescription = "Undo") },
-                text = { Text("Undo ($undoStackSize)") },
                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-            )
+            ) {
+                Icon(Icons.Default.Undo, contentDescription = "Undo ($undoStackSize)")
+            }
         }
     }
 }
@@ -579,7 +579,7 @@ private fun BoxScope.SwipeHints(offsetX: Float, offsetY: Float, threshold: Float
                     .alpha((absY / threshold).coerceIn(0f, 1f))
             ) {
                 Icon(Icons.Default.DriveFileMove, null, tint = Color.Cyan, modifier = Modifier.size(64.dp))
-                Text("Move to Folder", color = Color.Cyan, style = MaterialTheme.typography.titleLarge)
+                Text("Move to Album", color = Color.Cyan, style = MaterialTheme.typography.titleLarge)
             }
         }
     } else {
@@ -655,7 +655,7 @@ private fun AlbumPickerSheet(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { createUnder = "" }
+                                .clickable { createUnder = "DCIM" }
                                 .padding(horizontal = 24.dp, vertical = 16.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -666,16 +666,11 @@ private fun AlbumPickerSheet(
                             )
                             Spacer(modifier = Modifier.width(16.dp))
                             Text(
-                                text = "New Folder…",
+                                text = "New Album…",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier.weight(1f)
-                            )
-                            Text(
-                                text = "at root",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                         Divider()
@@ -722,25 +717,24 @@ private fun AlbumPickerSheet(
     val createParent = createUnder
     if (createParent != null && onCreateNewFolder != null) {
         var folderName by remember(createParent) { mutableStateOf("") }
-        val parentLabel = if (createParent.isEmpty()) "root" else createParent
+        val parentLabel = createParent.ifBlank { "DCIM" }
         AlertDialog(
             onDismissRequest = { createUnder = null },
             icon = { Icon(Icons.Default.CreateNewFolder, null, tint = MaterialTheme.colorScheme.primary) },
-            title = { Text("New Folder in $parentLabel") },
+            title = { Text("New Album in $parentLabel") },
             text = {
                 Column {
                     OutlinedTextField(
                         value = folderName,
                         onValueChange = { folderName = it },
-                        label = { Text("Folder name") },
+                        label = { Text("Album name") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(Modifier.height(8.dp))
                     val previewName = folderName.trim().ifBlank { "<name>" }
-                    val previewPath = if (createParent.isEmpty()) "$previewName/" else "$createParent/$previewName/"
                     Text(
-                        text = "Path: $previewPath",
+                        text = "Location: $parentLabel/$previewName/",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

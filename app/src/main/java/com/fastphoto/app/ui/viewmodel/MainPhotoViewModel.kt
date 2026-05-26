@@ -185,11 +185,19 @@ class MainPhotoViewModel @Inject constructor(
             val trimmedName = folderName.trim().trim('/')
             val cleanedParent = parentPath.trim().trim('/')
             if (trimmedName.isEmpty()) {
-                _events.emit(MainPhotoEvent.Error("Folder name can't be empty"))
+                _events.emit(MainPhotoEvent.Error("Album name can't be empty"))
                 return@launch
             }
-            val targetPath = if (cleanedParent.isEmpty()) "$trimmedName/"
-                             else "$cleanedParent/$trimmedName/"
+            // MediaStore Android Q+ images can only live under DCIM/ or Pictures/.
+            // If parent is empty or starts with something else, force DCIM/ prefix.
+            val allowedRoots = listOf("DCIM", "Pictures")
+            val firstSegment = cleanedParent.substringBefore('/', cleanedParent)
+            val safeParent = when {
+                cleanedParent.isEmpty() -> "DCIM"
+                firstSegment in allowedRoots -> cleanedParent
+                else -> "DCIM/$cleanedParent"
+            }
+            val targetPath = "$safeParent/$trimmedName/"
             mediaRepository.copyPhotoToAlbum(photo, targetPath)
                 .onSuccess {
                     trashRepository.moveToTrash(photo)
