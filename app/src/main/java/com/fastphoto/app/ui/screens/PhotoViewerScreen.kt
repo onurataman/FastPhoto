@@ -11,6 +11,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -170,8 +172,8 @@ fun PhotoViewerScreen(
                 showMovePicker = null
             },
             onShowAll = null,
-            onCreateNewFolder = { name ->
-                viewModel.moveToNewFolderByName(moveTarget, name)
+            onCreateNewFolder = { parentPath, name ->
+                viewModel.moveToNewFolderByName(moveTarget, parentPath, name)
                 showMovePicker = null
             },
             onDismiss = { showMovePicker = null }
@@ -243,12 +245,7 @@ private fun PhotoSwipeStack(
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         if (next != null) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(next.uri)
-                    .crossfade(false)
-                    .build(),
-                contentDescription = next.displayName,
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
@@ -257,18 +254,23 @@ private fun PhotoSwipeStack(
                         scaleX = 0.92f + 0.08f * progress
                         scaleY = 0.92f + 0.08f * progress
                         alpha = 0.4f + 0.6f * progress
-                    },
-                contentScale = ContentScale.Fit
-            )
+                    }
+                    .background(Color.Black)
+            ) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(next.uri)
+                        .crossfade(false)
+                        .build(),
+                    contentDescription = next.displayName,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
+                )
+            }
         }
 
         if (current != null) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(current.uri)
-                    .crossfade(false)
-                    .build(),
-                contentDescription = current.displayName,
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
@@ -276,6 +278,7 @@ private fun PhotoSwipeStack(
                         translationY = offsetY.value
                         rotationZ = (offsetX.value / 40f).coerceIn(-12f, 12f)
                     }
+                    .background(Color.Black)
                     .pointerInput(currentIndex, photos.size) {
                         detectTapGestures(onTap = { showControls = !showControls })
                     }
@@ -324,9 +327,18 @@ private fun PhotoSwipeStack(
                                 }
                             }
                         )
-                    },
-                contentScale = ContentScale.Fit
-            )
+                    }
+            ) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(current.uri)
+                        .crossfade(false)
+                        .build(),
+                    contentDescription = current.displayName,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
+                )
+            }
 
             SwipeHints(offsetX = offsetX.value, offsetY = offsetY.value, threshold = threshold)
         }
@@ -606,23 +618,25 @@ private fun AlbumPickerSheet(
     currentParentHint: String?,
     onSelect: (Album) -> Unit,
     onShowAll: (() -> Unit)?,
-    onCreateNewFolder: ((String) -> Unit)?,
+    onCreateNewFolder: ((String, String) -> Unit)?,
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var showCreateDialog by remember { mutableStateOf(false) }
+    var createUnder by remember { mutableStateOf<String?>(null) }
 
-    val grouped = remember(albums) { groupAlbumsByParent(albums) }
-    val defaultParent = remember(currentParentHint, grouped) {
-        val hintParent = currentParentHint?.trim('/')?.substringBefore('/', "")?.ifBlank { null }
-        when {
-            hintParent != null && hintParent in grouped.keys -> hintParent
-            "DCIM" in grouped.keys -> "DCIM"
-            else -> grouped.keys.firstOrNull()
+    val tree = remember(albums) { buildAlbumTree(albums) }
+    val expanded = remember(tree) { mutableStateMapOf<String, Boolean>() }
+
+    // İlk açılışta hint'le ilgili dalı ve üst birkaç dalı aç
+    LaunchedEffect(tree, currentParentHint) {
+        val hintSegments = currentParentHint?.trim('/')?.split('/')?.filter { it.isNotEmpty() }.orEmpty()
+        if (hintSegments.isNotEmpty()) {
+            var accum = ""
+            for (seg in hintSegments) {
+                accum = if (accum.isEmpty()) seg else "$accum/$seg"
+                expanded[accum] = true
+            }
         }
-    }
-    var expandedParents by remember(grouped) {
-        mutableStateOf(setOfNotNull(defaultParent))
     }
 
     ModalBottomSheet(
@@ -637,11 +651,11 @@ private fun AlbumPickerSheet(
             )
             LazyColumn {
                 if (onCreateNewFolder != null) {
-                    item {
+                    item(key = "new_folder_root") {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { showCreateDialog = true }
+                                .clickable { createUnder = "" }
                                 .padding(horizontal = 24.dp, vertical = 16.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -659,7 +673,7 @@ private fun AlbumPickerSheet(
                                 modifier = Modifier.weight(1f)
                             )
                             Text(
-                                text = "in DCIM/",
+                                text = "at root",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -669,7 +683,7 @@ private fun AlbumPickerSheet(
                 }
 
                 if (onShowAll != null) {
-                    item {
+                    item(key = "all_photos") {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -693,90 +707,26 @@ private fun AlbumPickerSheet(
                     }
                 }
 
-                grouped.forEach { (parent, parentAlbums) ->
-                    val expanded = parent in expandedParents
-                    val totalCount = parentAlbums.sumOf { it.photoCount }
-                    item(key = "header_$parent") {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    expandedParents = if (expanded) expandedParents - parent
-                                                      else expandedParents + parent
-                                }
-                                .padding(horizontal = 24.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = if (expanded) Icons.Default.FolderOpen else Icons.Default.Folder,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = parent,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = "${parentAlbums.size} folder(s) · $totalCount photos",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Icon(
-                                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    if (expanded) {
-                        items(parentAlbums, key = { "album_${it.bucketId}" }) { album ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onSelect(album) }
-                                    .padding(start = 56.dp, end = 24.dp, top = 12.dp, bottom = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    Icons.Default.Folder,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = album.name,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = if (album.bucketId == currentBucketId) MaterialTheme.colorScheme.primary else Color.Unspecified
-                                    )
-                                    Text(
-                                        text = "${album.photoCount} photos",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                if (album.bucketId == currentBucketId) {
-                                    Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary)
-                                }
-                            }
-                        }
-                    }
-                }
+                renderTree(
+                    nodes = tree,
+                    depth = 0,
+                    expanded = expanded,
+                    currentBucketId = currentBucketId,
+                    onSelect = onSelect,
+                    onCreateChild = if (onCreateNewFolder != null) { path -> createUnder = path } else null
+                )
             }
         }
     }
 
-    if (showCreateDialog && onCreateNewFolder != null) {
-        var folderName by remember { mutableStateOf("") }
+    val createParent = createUnder
+    if (createParent != null && onCreateNewFolder != null) {
+        var folderName by remember(createParent) { mutableStateOf("") }
+        val parentLabel = if (createParent.isEmpty()) "root" else createParent
         AlertDialog(
-            onDismissRequest = { showCreateDialog = false },
+            onDismissRequest = { createUnder = null },
             icon = { Icon(Icons.Default.CreateNewFolder, null, tint = MaterialTheme.colorScheme.primary) },
-            title = { Text("New Folder in DCIM") },
+            title = { Text("New Folder in $parentLabel") },
             text = {
                 Column {
                     OutlinedTextField(
@@ -787,8 +737,10 @@ private fun AlbumPickerSheet(
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(Modifier.height(8.dp))
+                    val previewName = folderName.trim().ifBlank { "<name>" }
+                    val previewPath = if (createParent.isEmpty()) "$previewName/" else "$createParent/$previewName/"
                     Text(
-                        text = "Path: DCIM/${folderName.trim().ifBlank { "<name>" }}/",
+                        text = "Path: $previewPath",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -799,28 +751,222 @@ private fun AlbumPickerSheet(
                     enabled = folderName.trim().isNotEmpty(),
                     onClick = {
                         val name = folderName.trim()
-                        showCreateDialog = false
-                        onCreateNewFolder(name)
+                        val parent = createParent
+                        createUnder = null
+                        onCreateNewFolder(parent, name)
                     }
                 ) { Text("Create & Move") }
             },
             dismissButton = {
-                TextButton(onClick = { showCreateDialog = false }) { Text("Cancel") }
+                TextButton(onClick = { createUnder = null }) { Text("Cancel") }
             }
         )
     }
 }
 
-private fun groupAlbumsByParent(albums: List<Album>): Map<String, List<Album>> {
-    val groups = albums.groupBy { album ->
-        val trimmed = album.relativePath.trim('/')
-        if (trimmed.isEmpty()) "Other" else trimmed.substringBefore('/', "Other").ifBlank { "Other" }
+private fun LazyListScope.renderTree(
+    nodes: List<AlbumNode>,
+    depth: Int,
+    expanded: SnapshotStateMap<String, Boolean>,
+    currentBucketId: String?,
+    onSelect: (Album) -> Unit,
+    onCreateChild: ((String) -> Unit)?
+) {
+    for (node in nodes) {
+        item(key = "node_${node.fullPath}") {
+            AlbumPickerRow(
+                node = node,
+                depth = depth,
+                isExpanded = expanded[node.fullPath] == true,
+                isSelected = node.album?.bucketId == currentBucketId,
+                onToggle = {
+                    expanded[node.fullPath] = !(expanded[node.fullPath] ?: false)
+                },
+                onSelect = { node.album?.let(onSelect) },
+                onCreateChild = onCreateChild?.let { cb -> { cb(node.fullPath) } }
+            )
+        }
+        if (expanded[node.fullPath] == true && node.children.isNotEmpty()) {
+            renderTree(
+                nodes = node.children,
+                depth = depth + 1,
+                expanded = expanded,
+                currentBucketId = currentBucketId,
+                onSelect = onSelect,
+                onCreateChild = onCreateChild
+            )
+        }
     }
-    return groups.entries
-        .sortedWith(
-            compareByDescending<Map.Entry<String, List<Album>>> { (parent, _) -> parent == "DCIM" }
-                .thenByDescending { (parent, _) -> parent == "Pictures" }
-                .thenByDescending { (_, list) -> list.sumOf { it.photoCount } }
+}
+
+@Composable
+private fun AlbumPickerRow(
+    node: AlbumNode,
+    depth: Int,
+    isExpanded: Boolean,
+    isSelected: Boolean,
+    onToggle: () -> Unit,
+    onSelect: () -> Unit,
+    onCreateChild: (() -> Unit)?
+) {
+    val indent = (16 + minOf(depth, 3) * 16).dp
+    val hasChildren = node.children.isNotEmpty()
+    val isSelectable = node.album != null
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = isSelectable || hasChildren) {
+                if (isSelectable) onSelect() else if (hasChildren) onToggle()
+            }
+            .padding(start = indent, end = 8.dp, top = 12.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Chevron (sadece children varsa interactive, yoksa spacer)
+        if (hasChildren) {
+            Icon(
+                imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = if (isExpanded) "Collapse" else "Expand",
+                modifier = Modifier
+                    .size(24.dp)
+                    .clickable { onToggle() },
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            Spacer(modifier = Modifier.size(24.dp))
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Icon(
+            imageVector = when {
+                hasChildren && isExpanded -> Icons.Default.FolderOpen
+                else -> Icons.Default.Folder
+            },
+            contentDescription = null,
+            tint = if (isSelectable) MaterialTheme.colorScheme.primary
+                   else MaterialTheme.colorScheme.onSurfaceVariant
         )
-        .associate { (parent, list) -> parent to list.sortedByDescending { it.photoCount } }
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = node.segment.ifBlank { "(unnamed)" },
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (depth == 0) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Unspecified
+            )
+            val subtitle = when {
+                node.album != null && hasChildren ->
+                    "${node.album.photoCount} photos · ${node.totalPhotoCount} total"
+                node.album != null -> "${node.album.photoCount} photos"
+                hasChildren -> "${node.children.size} folder(s) · ${node.totalPhotoCount} photos"
+                else -> "empty"
+            }
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        if (isSelected) {
+            Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(modifier = Modifier.width(4.dp))
+        }
+        if (onCreateChild != null) {
+            IconButton(onClick = onCreateChild) {
+                Icon(
+                    Icons.Default.CreateNewFolder,
+                    contentDescription = "Create subfolder here",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+}
+
+private val SYSTEM_ROOTS = setOf("DCIM", "Pictures")
+
+private data class AlbumNode(
+    val segment: String,
+    val fullPath: String,
+    val album: Album?,
+    val children: List<AlbumNode>,
+    val totalPhotoCount: Int
+)
+
+private fun buildAlbumTree(albums: List<Album>): List<AlbumNode> {
+    class MutableNode(
+        val segment: String,
+        val fullPath: String,
+        var album: Album? = null,
+        val children: LinkedHashMap<String, MutableNode> = LinkedHashMap()
+    )
+
+    val root = MutableNode("", "")
+    val orphans = mutableListOf<Album>()
+
+    for (album in albums) {
+        val segments = album.relativePath.trim('/').split('/').filter { it.isNotEmpty() }
+        if (segments.isEmpty()) {
+            orphans.add(album)
+            continue
+        }
+        var cursor = root
+        var accumulated = ""
+        for ((index, seg) in segments.withIndex()) {
+            accumulated = if (accumulated.isEmpty()) seg else "$accumulated/$seg"
+            val node = cursor.children.getOrPut(seg) { MutableNode(seg, accumulated) }
+            if (index == segments.size - 1) node.album = album
+            cursor = node
+        }
+    }
+
+    fun convert(m: MutableNode): AlbumNode {
+        val kids = m.children.values.map(::convert).sortedByDescending { it.totalPhotoCount }
+        val total = (m.album?.photoCount ?: 0) + kids.sumOf { it.totalPhotoCount }
+        return AlbumNode(m.segment, m.fullPath, m.album, kids, total)
+    }
+
+    val topLevel = root.children.values.map(::convert)
+    val finalList = mutableListOf<AlbumNode>()
+    for (node in topLevel) {
+        if (node.segment in SYSTEM_ROOTS) {
+            // DCIM/Pictures köküne direkt bucket bağlıysa (örn. "DCIM/IMG_001.jpg") tut.
+            node.album?.let { bucket ->
+                finalList.add(
+                    AlbumNode(
+                        segment = bucket.name.ifBlank { node.segment },
+                        fullPath = node.fullPath,
+                        album = bucket,
+                        children = emptyList(),
+                        totalPhotoCount = bucket.photoCount
+                    )
+                )
+            }
+            // Sistem prefix'inin children'ı top-level'a yükselt.
+            finalList.addAll(node.children)
+        } else {
+            finalList.add(node)
+        }
+    }
+
+    if (orphans.isNotEmpty()) {
+        val otherChildren = orphans.map { album ->
+            AlbumNode(
+                segment = album.name.ifBlank { "Unknown" },
+                fullPath = "Other/${album.bucketId}",
+                album = album,
+                children = emptyList(),
+                totalPhotoCount = album.photoCount
+            )
+        }.sortedByDescending { it.totalPhotoCount }
+        finalList.add(
+            AlbumNode(
+                segment = "Other",
+                fullPath = "Other",
+                album = null,
+                children = otherChildren,
+                totalPhotoCount = otherChildren.sumOf { it.totalPhotoCount }
+            )
+        )
+    }
+
+    return finalList.sortedByDescending { it.totalPhotoCount }
 }
